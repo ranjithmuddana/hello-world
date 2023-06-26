@@ -9,39 +9,30 @@ pipeline {
         stage('Send Email') {
             steps {
                 script {
-                    def array2D = [
-                        ["Name", "Age", "Country", "Item4", "Item5", "Item6", "Item7"],
-                        ["Alice", "25", "USA", "Value4", "Value5", "Value6", "Value7"],
-                        ["Bob", "30", "Canada", "Value4", "Value5", "Value6", "Value7"],
-                        ["Charlie", "35", "USA", "Value4", "Value5", "Value6", "Value7"]
+                    def issueDetails = [
+                        ["Name", "Age", "Country", "Item1", "Item2", "Item3", "Item4", "Item5"],
+                        ["Alice", "25", "USA", "Value1", "Value2", "Value3", "Value4", "Value5"],
+                        ["Bob", "30", "Canada", "Value1", "Value2", "Value3", "Value4", "Value5"],
+                        ["Charlie", "35", "USA", "Value1", "Value2", "Value3", "Value4", "Value5"]
                     ]
                     
                     def emailTable = """
-                    <style>
-                    table {
-                        border-collapse: collapse;
-                        width: 100%;
-                    }
-                    
-                    th, td {
-                        border: 1px solid black;
-                        padding: 8px;
-                    }
-                    
-                    tr:nth-child(even) {
-                        background-color: #f2f2f2;
-                    }
-                    </style>
-                    
-                    <table>
+                    <table style="border-collapse: collapse; width: 100%;">
                       <thead>
-                        <tr>
-                          <th>${array2D[0].join('</th><th>')}</th>
+                        <tr style="background-color: #f2f2f2;">
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][0]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][1]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][2]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][3]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][4]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][5]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][6]}</th>
+                          <th style="border: 1px solid black; padding: 8px;">${issueDetails[0][7]}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        ${array2D[1..-1].collect { row ->
-                            "<tr><td>${row.join('</td><td>')}</td></tr>"
+                        ${issueDetails[1..-1].collect { row ->
+                            "<tr style='background-color: #ffffff;'><td style='border: 1px solid black; padding: 8px;'>${row[0]}</td><td style='border: 1px solid black; padding: 8px;'>${row[1]}</td><td style='border: 1px solid black; padding: 8px;'>${row[2]}</td><td style='border: 1px solid black; padding: 8px;'>${row[3]}</td><td style='border: 1px solid black; padding: 8px;'>${row[4]}</td><td style='border: 1px solid black; padding: 8px;'>${row[5]}</td><td style='border: 1px solid black; padding: 8px;'>${row[6]}</td><td style='border: 1px solid black; padding: 8px;'>${row[7]}</td></tr>"
                         }.join('\n')}
                       </tbody>
                     </table>
@@ -53,15 +44,4 @@ pipeline {
                                  <p>The build status is: ${currentBuild.currentResult}</p>
                                  <p>Here is the table:</p>
                                  ${emailTable}
-                                 <p>Regards,</p>
-                                 <p>Jenkins</p>""",
-                        to: 'recipient@example.com',
-                        from: 'sender@example.com',
-                        replyTo: 'replyto@example.com',
-                        mimeType: 'text/html'
-                    )
-                }
-            }
-        }
-    }
-}
+                                 <p>Regards,</
