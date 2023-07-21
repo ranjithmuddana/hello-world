@@ -1,61 +1,45 @@
-import com.google.cloud.logging.*;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import com.google.api.gax.paging.Page;
+import com.google.cloud.logging.Logging;
+import com.google.cloud.logging.LoggingOptions;
+import com.google.cloud.logging.LogEntry;
+import com.google.cloud.logging.LogEntryListOption;
+import com.google.cloud.logging.Logger;
+import com.google.cloud.logging.Severity;
+import com.google.cloud.logging.v2.LoggingClient;
+import com.google.cloud.logging.v2.LoggingSettings;
+import com.google.common.collect.Lists;
+import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
+import java.io.IOException;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.*;
+@Service
+public class GcpReadLogsService {
+    private final Logging logging;
+    private final String project;
 
-public class GoogleCloudLoggingServiceTest {
-
-    private static final String PROJECT_ID = "your-project-id";
-    private GoogleCloudLoggingService loggingService;
-    private Logging mockLogging;
-
-    @BeforeEach
-    public void setup() {
-        // Create the mock object for Logging
-        mockLogging = mock(Logging.class);
-
-        // Create the GoogleCloudLoggingService instance
-        loggingService = new GoogleCloudLoggingService(PROJECT_ID);
+    public GcpReadLogsService() throws IOException {
+        this.project = "your-project-id"; // Replace with your GCP project ID
+        this.logging = LoggingOptions.newBuilder().setRetrySettings(LoggingSettings.defaultRetrySettings()).build().getService();
     }
 
-    @Test
-    public void testListLogEntries() {
-        // Create a list of log entries to be returned by the mock Logging
-        List<LogEntry> expectedLogEntries = Arrays.asList(
-                LogEntry.newBuilder(StringPayload.of("Log entry 1")).build(),
-                LogEntry.newBuilder(StringPayload.of("Log entry 2")).build()
-        );
+    public List<LogEntry> readLogs(String logResource, String filterStr, LoggingOptions options) {
+        List<LogEntry> logs = Lists.newArrayList();
+        Logger logger = logging.getLogger(logResource);
 
-        // Simulate a successful response without any exceptions
-        when(mockLogging.listLogEntries(any(), any()))
-                .thenReturn(expectedLogEntries);
+        try {
+            Page<LogEntry> entries = logging.listLogEntries(
+                    LogEntryListOption.filter(filterStr),
+                    LogEntryListOption.resource(logger),
+                    options
+            );
+            entries.iterateAll().forEach(logs::add);
+        } catch (Exception e) {
+            System.err.println("Error occurred: " + e.getMessage());
+        }
 
-        // Replace "your-log-name" with the actual name of the log you want to read
-        String logName = "projects/your-project-id/logs/your-log-name";
-
-        // Define the filtering options if needed
-        LogEntryListOption[] options = {
-                LogEntryListOption.filter("severity=ERROR"), // Filter by severity if needed
-                LogEntryListOption.option(LogEntryListOption.OptionType.DESCENDING) // Sort by descending order if needed
-        };
-
-        // Create the GoogleCloudLoggingService instance with the mock Logging
-        loggingService = new GoogleCloudLoggingService(PROJECT_ID);
-        // Set the mock Logging object in the GoogleCloudLoggingService instance
-        ((GoogleCloudLoggingService) loggingService).setLoggingClient(mockLogging);
-
-        // Call the method to read the log entries
-        List<LogEntry> logEntries = loggingService.listLogEntries(logName, options);
-
-        // Verify that the method was called once
-        verify(mockLogging, times(1)).listLogEntries(eq(logName), eq(options));
-
-        // Assert that the method returns the expected log entries
-        assertEquals(expectedLogEntries, logEntries);
+        return logs;
     }
+
+    // You can add additional methods here if needed.
 }
