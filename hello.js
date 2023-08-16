@@ -1,63 +1,49 @@
-import com.google.api.gax.core.RetrySettings;
-import com.google.api.gax.paging.Page;
-import com.google.cloud.logging.Logging;
-import com.google.cloud.logging.LoggingOptions;
-import com.google.cloud.logging.LogEntry;
-import com.google.cloud.logging.LogEntryListOption;
-import com.google.cloud.logging.Logger;
-import com.google.cloud.logging.Severity;
-import com.google.common.collect.Lists;
-import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
-import java.io.IOException;
-import java.util.List;
+// ...
 
-@Service
-public class GcpReadLogsService {
-    private final Logging logging;
-    private final String project;
+@Bean
+public IntegrationFlow messageFlow() {
+    return IntegrationFlows.from(pubsubInputChannel())
+            .handle(new MessageHandler() {
+                @Override
+                public void handleMessage(org.springframework.messaging.Message<?> message) throws MessagingException {
+                    try {
+                        // Process the Pub/Sub message here
+                        System.out.println("Received message: " + message.getPayload());
 
-    public GcpReadLogsService() throws IOException {
-        this.project = "your-project-id"; // Replace with your GCP project ID
-        this.logging = createLoggingClientWithRetrySettings();
-    }
+                        // Acknowledge the message immediately
+                        AcknowledgablePubsubMessage originalMessage =
+                                (AcknowledgablePubsubMessage) message.getPayload();
+                        originalMessage.ack();
+                        System.out.println("Acknowledged message");
 
-    private Logging createLoggingClientWithRetrySettings() {
-        RetrySettings retrySettings = RetrySettings.newBuilder()
-                .setInitialRetryDelayMillis(1000) // 1 second initial delay
-                .setMaxRetryDelayMillis(30000)    // 30 seconds maximum delay
-                .setTotalTimeoutMillis(600000)    // 10 minutes total timeout
-                .setInitialRpcTimeoutMillis(5000) // 5 seconds initial RPC timeout
-                .setMaxRpcTimeoutMillis(30000)    // 30 seconds maximum RPC timeout
-                .setRetryDelayMultiplier(1.3)     // Exponential backoff multiplier
-                .setRpcTimeoutMultiplier(1.5)     // RPC timeout multiplier
-                .setMaxAttempts(5)                // Maximum number of retry attempts
-                .build();
+                        // Create a Flux that emits a single value and then retries indefinitely with a 20-second delay
+                        Flux<Long> retryFlux = Flux.just(0L)
+                                .delayElements(Duration.ofSeconds(20))
+                                .retryWhen(Retry.indefinitely());
 
-        LoggingOptions loggingOptions = LoggingOptions.newBuilder()
-                .setRetrySettings(retrySettings)
-                .build();
-
-        return loggingOptions.getService();
-    }
-
-    public List<LogEntry> readLogs(String logResource, String filterStr, LoggingOptions options) {
-        List<LogEntry> logs = Lists.newArrayList();
-        Logger logger = logging.getLogger(logResource);
-
-        try {
-            Page<LogEntry> entries = logging.listLogEntries(
-                    LogEntryListOption.filter(filterStr),
-                    LogEntryListOption.resource(logger),
-                    options
-            );
-            entries.iterateAll().forEach(logs::add);
-        } catch (Exception e) {
-            System.err.println("Error occurred: " + e.getMessage());
-        }
-
-        return logs;
-    }
-
-    // You can add additional methods here if needed.
+                        // Use flatMap to execute the WebClient call on each emitted value of the Flux
+                        retryFlux.flatMap(ignore -> {
+                            return webClientBuilder.build()
+                                    .post()
+                                    .uri("http://other-service-url")
+                                    .bodyValue(message.getPayload())
+                                    .retrieve()
+                                    .bodyToMono(Void.class)
+                                    .onErrorResume(error -> {
+                                        // Handle error here, e.g., log the error
+                                        System.err.println("Error sending message: " + error.getMessage());
+                                        return Mono.empty(); // Continue processing
+                                    });
+                        }).subscribe(); // Start the subscription
+                    } catch (Exception e) {
+                        // Handle any exceptions that occur during processing
+                        e.printStackTrace();
+                    }
+                }
+            })
+            .get();
 }
