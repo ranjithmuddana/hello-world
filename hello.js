@@ -1,8 +1,13 @@
-import reactor.core.publisher.Flux;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
+import java.time.Duration;
+
 // ...
+
+@Autowired
+private WebClient.Builder webClientBuilder;
 
 @Bean
 public IntegrationFlow messageFlow() {
@@ -20,25 +25,20 @@ public IntegrationFlow messageFlow() {
                         originalMessage.ack();
                         System.out.println("Acknowledged message");
 
-                        // Create a Flux that emits a single value and then retries indefinitely with a 20-second delay
-                        Flux<Long> retryFlux = Flux.just(0L)
-                                .delayElements(Duration.ofSeconds(20))
-                                .retryWhen(Retry.indefinitely());
-
-                        // Use flatMap to execute the WebClient call on each emitted value of the Flux
-                        retryFlux.flatMap(ignore -> {
-                            return webClientBuilder.build()
-                                    .post()
-                                    .uri("http://other-service-url")
-                                    .bodyValue(message.getPayload())
-                                    .retrieve()
-                                    .bodyToMono(Void.class)
-                                    .onErrorResume(error -> {
-                                        // Handle error here, e.g., log the error
-                                        System.err.println("Error sending message: " + error.getMessage());
-                                        return Mono.empty(); // Continue processing
-                                    });
-                        }).subscribe(); // Start the subscription
+                        // Send the message to another service using WebClient with automatic retry
+                        webClientBuilder.build()
+                                .post()
+                                .uri("http://other-service-url")
+                                .bodyValue(message.getPayload())
+                                .retrieve()
+                                .bodyToMono(Void.class)
+                                .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(20))) // Retry 3 times with 20 seconds delay
+                                .onErrorResume(error -> {
+                                    // Handle error here, e.g., log the error
+                                    System.err.println("Error sending message: " + error.getMessage());
+                                    return Mono.empty(); // Continue processing
+                                })
+                                .subscribe(); // Start the subscription
                     } catch (Exception e) {
                         // Handle any exceptions that occur during processing
                         e.printStackTrace();
