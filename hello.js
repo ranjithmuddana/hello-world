@@ -1,5 +1,4 @@
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -25,8 +24,8 @@ public IntegrationFlow messageFlow() {
                         originalMessage.ack();
                         System.out.println("Acknowledged message");
 
-                        // Send the message to another service using WebClient with automatic retry
-                        webClientBuilder.build()
+                        // Send the message to another service using WebClient with retries (using block)
+                        boolean success = webClientBuilder.build()
                                 .post()
                                 .uri("http://other-service-url")
                                 .bodyValue(message.getPayload())
@@ -38,7 +37,12 @@ public IntegrationFlow messageFlow() {
                                     System.err.println("Error sending message: " + error.getMessage());
                                     return Mono.empty(); // Continue processing
                                 })
-                                .subscribe(); // Start the subscription
+                                .block(); // Synchronously block and wait for result
+
+                        if (!success) {
+                            // Handle the case where retry attempts were exhausted
+                            System.err.println("Message delivery failed after retries.");
+                        }
                     } catch (Exception e) {
                         // Handle any exceptions that occur during processing
                         e.printStackTrace();
