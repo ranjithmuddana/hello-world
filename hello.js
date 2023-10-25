@@ -1,15 +1,51 @@
-#!/bin/bash
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-# Specify the source file and destination directory
-source_file="gs://your-bucket/path/to/part-r-00003.dat"
-destination_directory="gs://your-bucket/path/to/destination/"
+@Configuration
+public class FilterConfig {
+    @Bean
+    public FilterRegistrationBean<ESAPIEncodingFilter> esapiFilter() {
+        FilterRegistrationBean<ESAPIEncodingFilter> registrationBean = new FilterRegistrationBean<>();
+        registrationBean.setFilter(new ESAPIEncodingFilter());
+        registrationBean.addUrlPatterns("/*"); // Apply the filter to all requests
+        return registrationBean;
+    }
+}
 
-# Specify the number of copies you want
-num_copies=10
+import org.owasp.esapi.ESAPI;
 
-# Loop to create and copy files with incremented numbers
-for ((i=1; i<=$num_copies; i++)); do
-  incremented_number=$(printf "%05d" $i)
-  destination_file="${destination_directory}part-r-${incremented_number}.dat"
-  gsutil cp "$source_file" "$destination_file"
-done
+import javax.servlet.Filter;
+import javax.servlet.FilterChain;
+import javax.servlet.FilterConfig;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import java.io.IOException;
+
+public class ESAPIEncodingFilter implements Filter {
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+        // Initialization code, if needed.
+    }
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        // Wrap the response to override the getWriter() method with a custom writer.
+        ESAPIResponseWrapper wrappedResponse = new ESAPIResponseWrapper(response);
+
+        chain.doFilter(request, wrappedResponse);
+
+        // Get the response content from the wrapped response and encode it using ESAPI.
+        String encodedResponse = ESAPI.encoder().encodeForHTML(wrappedResponse.toString());
+
+        // Write the encoded content to the original response.
+        response.getWriter().write(encodedResponse);
+    }
+
+    @Override
+    public void destroy() {
+        // Cleanup code, if needed.
+    }
+}
