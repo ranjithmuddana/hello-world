@@ -49,3 +49,26 @@ public class ESAPIEncodingFilter implements Filter {
         // Cleanup code, if needed.
     }
 }
+
+import java.io.CharArrayWriter;
+import java.io.PrintWriter;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpServletResponseWrapper;
+
+public class ESAPIResponseWrapper extends HttpServletResponseWrapper {
+    private CharArrayWriter charArray = new CharArrayWriter();
+
+    public ESAPIResponseWrapper(HttpServletResponse response) {
+        super(response);
+    }
+
+    @Override
+    public PrintWriter getWriter() {
+        return new PrintWriter(charArray);
+    }
+
+    @Override
+    public String toString() {
+        return charArray.toString();
+    }
+}
