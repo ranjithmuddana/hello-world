@@ -1,30 +1,26 @@
-import com.github.tomakehurst.wiremock.WireMockServer;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+public class YourApplication implements CommandLineRunner {
 
-@Configuration
-public class WireMockConfig {
+    @Autowired
+    private WireMockServer wireMockServer;
 
-    @Value("${wiremock.enabled}")
-    private boolean isWireMockEnabled;
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
 
-    @Value("${wiremock.server.port}")
-    private int wireMockPort;
+    @Override
+    public void run(String... args) {
+        // Start the WireMock server
+        wireMockServer.start();
 
-    @Value("${wiremock.server.context-path}")
-    private String wireMockContextPath;
-
-    @Bean(initMethod = "start", destroyMethod = "stop")
-    public WireMockServer wireMockServer() {
-        if (isWireMockEnabled) {
-            WireMockServer wireMockServer = new WireMockServer(wireMockPort);
-            wireMockServer.addMockServiceRequestListener(/* ... */);
-            wireMockServer.setGlobalFixedDelay(/* ... */);
-            // Configure additional WireMock settings as needed
-            return wireMockServer;
-        } else {
-            return null;
+        // Start the embedded Tomcat server
+        try {
+            startTomcat();
+        } catch (LifecycleException e) {
+            e.printStackTrace();
         }
+    }
+
+    private void startTomcat() throws LifecycleException {
+        // ... (embedded Tomcat setup)
     }
 }
