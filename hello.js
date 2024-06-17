@@ -1,56 +1,71 @@
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileReader;
+import org.apache.avro.file.SeekableFileInput;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericRecord;
+
 import java.io.*;
 
 public class LargeFileJoiner {
     public static void main(String[] args) {
-        String sortedFile1Path = "path/to/your/sorted_file1.txt";
-        String sortedFile2Path = "path/to/your/sorted_file2.txt";
+        String avroFilePath = "path/to/your/file1.avro";
+        String textFilePath = "path/to/your/file2.txt";
         String outputPath = "path/to/your/output.txt";
 
-        BufferedReader br1 = null;
-        BufferedReader br2 = null;
-        BufferedWriter bw = null;
+        BufferedReader brText = null;
+        BufferedWriter bwOutput = null;
 
         try {
-            br1 = new BufferedReader(new FileReader(sortedFile1Path));
-            br2 = new BufferedReader(new FileReader(sortedFile2Path));
-            bw = new BufferedWriter(new FileWriter(outputPath));
+            // Open Avro file for reading
+            SeekableFileInput inputAvro = new SeekableFileInput(new File(avroFilePath));
+            DataFileReader<GenericRecord> dataFileReader = new DataFileReader<>(inputAvro, new GenericDatumReader<>());
+            Schema avroSchema = dataFileReader.getSchema();
 
-            String line1 = br1.readLine();
-            String line2 = br2.readLine();
-            
-            while (line1 != null && line2 != null) {
-                String[] parts1 = line1.split("\\|");
-                String[] parts2 = line2.split("\\|");
+            // Open text file for reading and output file for writing
+            brText = new BufferedReader(new FileReader(textFilePath));
+            bwOutput = new BufferedWriter(new FileWriter(outputPath));
 
-                String id1 = parts1[0];
-                String id2 = parts2[0];
+            // Initialize variables for Avro record and text line
+            GenericRecord avroRecord = null;
+            String textLine;
 
-                if (id1.compareTo(id2) < 0) {
-                    line1 = br1.readLine();
-                } else if (id1.compareTo(id2) > 0) {
-                    line2 = br2.readLine();
-                } else {
-                    String data = parts1[1];
-                    while (line2 != null && id1.equals(id2)) {
-                        String address = parts2[1];
-                        bw.write(id1 + "|" + data + "|" + address);
-                        bw.newLine();
-                        line2 = br2.readLine();
-                        if (line2 != null) {
-                            parts2 = line2.split("\\|");
-                            id2 = parts2[0];
+            // Read the first Avro record
+            if (dataFileReader.hasNext()) {
+                avroRecord = dataFileReader.next();
+            }
+
+            // Process each line in the text file
+            while ((textLine = brText.readLine()) != null) {
+                String[] textParts = textLine.split("\\|");
+                if (textParts.length == 2) {
+                    String idText = textParts[0];
+                    String address = textParts[1];
+
+                    // Advance Avro record until ID matches or surpasses text ID
+                    while (avroRecord != null && avroRecord.get("id").toString().compareTo(idText) < 0) {
+                        if (dataFileReader.hasNext()) {
+                            avroRecord = dataFileReader.next();
+                        } else {
+                            avroRecord = null;
                         }
                     }
-                    line1 = br1.readLine();
+
+                    // Merge data if IDs match
+                    if (avroRecord != null && avroRecord.get("id").toString().equals(idText)) {
+                        String idAvro = avroRecord.get("id").toString();
+                        String dataAvro = avroRecord.get("data").toString(); // Change "data" to actual field name in your Avro schema
+                        String mergedLine = idAvro + "|" + dataAvro + "|" + address;
+                        bwOutput.write(mergedLine);
+                        bwOutput.newLine();
+                    }
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
             try {
-                if (br1 != null) br1.close();
-                if (br2 != null) br2.close();
-                if (bw != null) bw.close();
+                if (brText != null) brText.close();
+                if (bwOutput != null) bwOutput.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
