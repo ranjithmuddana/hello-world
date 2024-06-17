@@ -2,15 +2,17 @@ import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.file.SeekableFileInput;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 
 import java.io.*;
+import java.util.*;
 import java.util.concurrent.PipedInputStream;
 import java.util.concurrent.PipedOutputStream;
 
-public class JoinFilesPiped {
+public class JoinFilesPipedWithCache {
     public static void main(String[] args) {
         String avroFilePath = "path/to/your/file1.avro";
         String textFilePath = "path/to/your/file2.txt";
@@ -20,10 +22,13 @@ public class JoinFilesPiped {
         PipedOutputStream pipedOutputStream;
 
         try {
+            // Cache the text file into a Map
+            Map<String, List<String>> textDataMap = cacheTextFile(textFilePath);
+
             pipedOutputStream = new PipedOutputStream(pipedInputStream);
 
             Thread producer = new Thread(new AvroProducer(avroFilePath, pipedOutputStream));
-            Thread consumer = new Thread(new AvroConsumer(textFilePath, pipedInputStream, outputAvroPath));
+            Thread consumer = new Thread(new AvroConsumer(textDataMap, pipedInputStream, outputAvroPath));
 
             producer.start();
             consumer.start();
@@ -33,6 +38,24 @@ public class JoinFilesPiped {
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
+    }
+
+    private static Map<String, List<String>> cacheTextFile(String textFilePath) throws IOException {
+        Map<String, List<String>> textDataMap = new HashMap<>();
+        BufferedReader br = new BufferedReader(new FileReader(textFilePath));
+        String line;
+
+        while ((line = br.readLine()) != null) {
+            String[] parts = line.split("\\|");
+            if (parts.length == 2) {
+                String id = parts[0];
+                String address = parts[1];
+                textDataMap.computeIfAbsent(id, k -> new ArrayList<>()).add(address);
+            }
+        }
+
+        br.close();
+        return textDataMap;
     }
 }
 
@@ -74,19 +97,18 @@ class AvroProducer implements Runnable {
 }
 
 class AvroConsumer implements Runnable {
-    private final String textFilePath;
+    private final Map<String, List<String>> textDataMap;
     private final PipedInputStream pipedInputStream;
     private final String outputAvroPath;
 
-    public AvroConsumer(String textFilePath, PipedInputStream pipedInputStream, String outputAvroPath) {
-        this.textFilePath = textFilePath;
+    public AvroConsumer(Map<String, List<String>> textDataMap, PipedInputStream pipedInputStream, String outputAvroPath) {
+        this.textDataMap = textDataMap;
         this.pipedInputStream = pipedInputStream;
         this.outputAvroPath = outputAvroPath;
     }
 
     @Override
     public void run() {
-        BufferedReader brText = null;
         DataFileWriter<GenericRecord> avroWriter = null;
         ObjectInputStream objectInputStream = null;
 
@@ -105,9 +127,6 @@ class AvroConsumer implements Runnable {
 
             Schema schema = new Schema.Parser().parse(schemaJson);
 
-            // Open text file for reading
-            brText = new BufferedReader(new FileReader(textFilePath));
-
             // Open output Avro file for writing
             avroWriter = new DataFileWriter<>(new GenericDatumWriter<>(schema));
             avroWriter.create(schema, new File(outputAvroPath));
@@ -115,7 +134,6 @@ class AvroConsumer implements Runnable {
             // Initialize the object input stream
             objectInputStream = new ObjectInputStream(pipedInputStream);
 
-            String textLine;
             while (true) {
                 try {
                     GenericRecord avroRecord = (GenericRecord) objectInputStream.readObject();
@@ -123,25 +141,16 @@ class AvroConsumer implements Runnable {
                     String idAvro = avroRecord.get("id").toString(); // Change "id" to actual field name in your Avro schema
                     String avroData = avroRecord.toString(); // Adjust as needed to get specific fields
 
-                    // Reset text file reader to the beginning
-                    brText = new BufferedReader(new FileReader(textFilePath));
+                    // Find matching addresses from the cached map
+                    List<String> addresses = textDataMap.get(idAvro);
+                    if (addresses != null) {
+                        for (String address : addresses) {
+                            GenericRecord outputRecord = new GenericData.Record(schema);
+                            outputRecord.put("id", idAvro);
+                            outputRecord.put("avroData", avroData);  // Adjust based on actual data structure
+                            outputRecord.put("address", address);
 
-                    // Process each line in the text file to find matches
-                    while ((textLine = brText.readLine()) != null) {
-                        String[] textParts = textLine.split("\\|");
-                        if (textParts.length == 2) {
-                            String idText = textParts[0];
-                            String address = textParts[1];
-
-                            // If IDs match, write to output Avro file
-                            if (idAvro.equals(idText)) {
-                                GenericRecord outputRecord = new GenericData.Record(schema);
-                                outputRecord.put("id", idText);
-                                outputRecord.put("avroData", avroData);  // Adjust based on actual data structure
-                                outputRecord.put("address", address);
-
-                                avroWriter.append(outputRecord);
-                            }
+                            avroWriter.append(outputRecord);
                         }
                     }
                 } catch (EOFException e) {
@@ -152,7 +161,6 @@ class AvroConsumer implements Runnable {
             e.printStackTrace();
         } finally {
             try {
-                if (brText != null) brText.close();
                 if (avroWriter != null) avroWriter.close();
                 if (objectInputStream != null) objectInputStream.close();
             } catch (IOException e) {
