@@ -42,21 +42,29 @@ public class LargeFileJoiner {
                     String address = textParts[1];
 
                     // Find matching Avro record for the current ID
-                    while (avroRecord != null && !avroRecord.get("id").toString().equals(idText)) {
-                        if (dataFileReader.hasNext()) {
-                            avroRecord = dataFileReader.next();
-                        } else {
-                            avroRecord = null;
-                        }
-                    }
+                    boolean foundMatch = false;
+                    while (avroRecord != null && !foundMatch) {
+                        String idAvro = avroRecord.get("id").toString(); // Change "id" to actual field name in your Avro schema
 
-                    // Merge data if IDs match
-                    if (avroRecord != null && avroRecord.get("id").toString().equals(idText)) {
-                        String idAvro = avroRecord.get("id").toString();
-                        String dataAvro = avroRecord.get("data").toString(); // Change "data" to actual field name in your Avro schema
-                        String mergedLine = idAvro + "|" + dataAvro + "|" + address;
-                        bwOutput.write(mergedLine);
-                        bwOutput.newLine();
+                        // Compare IDs
+                        int compareResult = idAvro.compareTo(idText);
+                        if (compareResult == 0) {
+                            String dataAvro = avroRecord.get("data").toString(); // Change "data" to actual field name in your Avro schema
+                            String mergedLine = idAvro + "|" + dataAvro + "|" + address;
+                            bwOutput.write(mergedLine);
+                            bwOutput.newLine();
+                            foundMatch = true;
+                        } else if (compareResult > 0) {
+                            // Avro ID is greater than text ID, stop searching
+                            break;
+                        } else {
+                            // Avro ID is less than text ID, move to the next Avro record
+                            if (dataFileReader.hasNext()) {
+                                avroRecord = dataFileReader.next();
+                            } else {
+                                avroRecord = null;
+                            }
+                        }
                     }
                 }
             }
