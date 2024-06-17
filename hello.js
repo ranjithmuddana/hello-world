@@ -1,4 +1,3 @@
-import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.SeekableFileInput;
 import org.apache.avro.generic.GenericDatumReader;
@@ -6,64 +5,47 @@ import org.apache.avro.generic.GenericRecord;
 
 import java.io.*;
 
-public class LargeFileJoiner {
+public class JoinFilesStreamed {
     public static void main(String[] args) {
         String avroFilePath = "path/to/your/file1.avro";
-        String sortedTextFilePath = "path/to/your/sorted_file2.txt";
+        String textFilePath = "path/to/your/file2.txt";
         String outputPath = "path/to/your/output.txt";
 
-        BufferedReader brSortedText = null;
+        BufferedReader brText = null;
         BufferedWriter bwOutput = null;
+        DataFileReader<GenericRecord> avroReader = null;
 
         try {
-            // Open Avro file for reading
-            SeekableFileInput inputAvro = new SeekableFileInput(new File(avroFilePath));
-            DataFileReader<GenericRecord> dataFileReader = new DataFileReader<>(inputAvro, new GenericDatumReader<>());
-            Schema avroSchema = dataFileReader.getSchema();
-
-            // Open sorted text file for reading and output file for writing
-            brSortedText = new BufferedReader(new FileReader(sortedTextFilePath));
+            // Open text file for reading and output file for writing
+            brText = new BufferedReader(new FileReader(textFilePath));
             bwOutput = new BufferedWriter(new FileWriter(outputPath));
 
-            // Initialize variables for Avro record and sorted text line
-            GenericRecord avroRecord = null;
-            String sortedTextLine;
+            // Open Avro file for reading
+            SeekableFileInput inputAvro = new SeekableFileInput(new File(avroFilePath));
+            avroReader = new DataFileReader<>(inputAvro, new GenericDatumReader<>());
 
-            // Read the first Avro record
-            if (dataFileReader.hasNext()) {
-                avroRecord = dataFileReader.next();
-            }
+            // Process each record in the Avro file
+            while (avroReader.hasNext()) {
+                GenericRecord avroRecord = avroReader.next();
+                String idAvro = avroRecord.get("id").toString(); // Change "id" to actual field name in your Avro schema
+                String avroData = avroRecord.toString(); // Adjust as needed to get specific fields
 
-            // Process each line in the sorted text file
-            while ((sortedTextLine = brSortedText.readLine()) != null) {
-                String[] textParts = sortedTextLine.split("\\|");
-                if (textParts.length == 2) {
-                    String idText = textParts[0];
-                    String address = textParts[1];
+                // Reset text file reader to the beginning
+                brText = new BufferedReader(new FileReader(textFilePath));
+                String textLine;
 
-                    // Find matching Avro record for the current ID
-                    boolean foundMatch = false;
-                    while (avroRecord != null && !foundMatch) {
-                        String idAvro = avroRecord.get("id").toString(); // Change "id" to actual field name in your Avro schema
+                // Process each line in the text file to find matches
+                while ((textLine = brText.readLine()) != null) {
+                    String[] textParts = textLine.split("\\|");
+                    if (textParts.length == 2) {
+                        String idText = textParts[0];
+                        String address = textParts[1];
 
-                        // Compare IDs
-                        int compareResult = idAvro.compareTo(idText);
-                        if (compareResult == 0) {
-                            String dataAvro = avroRecord.get("data").toString(); // Change "data" to actual field name in your Avro schema
-                            String mergedLine = idAvro + "|" + dataAvro + "|" + address;
+                        // If IDs match, write to output file
+                        if (idAvro.equals(idText)) {
+                            String mergedLine = idText + "|" + avroData + "|" + address;
                             bwOutput.write(mergedLine);
                             bwOutput.newLine();
-                            foundMatch = true;
-                        } else if (compareResult > 0) {
-                            // Avro ID is greater than text ID, stop searching
-                            break;
-                        } else {
-                            // Avro ID is less than text ID, move to the next Avro record
-                            if (dataFileReader.hasNext()) {
-                                avroRecord = dataFileReader.next();
-                            } else {
-                                avroRecord = null;
-                            }
                         }
                     }
                 }
@@ -72,8 +54,9 @@ public class LargeFileJoiner {
             e.printStackTrace();
         } finally {
             try {
-                if (brSortedText != null) brSortedText.close();
+                if (brText != null) brText.close();
                 if (bwOutput != null) bwOutput.close();
+                if (avroReader != null) avroReader.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
