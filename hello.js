@@ -1,100 +1,40 @@
-import org.apache.avro.Schema;
-import org.apache.avro.file.DataFileReader;
-import org.apache.avro.file.DataFileWriter;
-import org.apache.avro.file.SeekableFileInput;
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericDatumWriter;
-import org.apache.avro.generic.GenericRecord;
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
 
-import java.io.*;
-import java.util.*;
+val spark = SparkSession.builder.appName("CompareColumns").getOrCreate()
+import spark.implicits._
 
-public class JoinFilesWithCache {
-    public static void main(String[] args) {
-        String avroFilePath = "path/to/your/file1.avro";
-        String textFilePath = "path/to/your/file2.txt";
-        String outputAvroPath = "path/to/your/output.avro";
+// Example data
+val data1 = Seq(
+  (1, "abcd", "other1"),
+  (2, "efgh", "other2"),
+  (3, "ijkl", "other3")
+).toDF("id", "col1", "col2")
 
-        try {
-            // Cache the text file into a Map
-            Map<String, List<String>> textDataMap = cacheTextFile(textFilePath);
+val data2 = Seq(
+  (1, "abxy", "other4"),
+  (2, "efzz", "other5"),
+  (3, "ijkl", "other6")
+).toDF("id", "col1", "col2")
 
-            // Process the Avro file and write to the output Avro file
-            processAvroFile(avroFilePath, textDataMap, outputAvroPath);
+data1.show()
+data2.show()
 
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+// UDF for character-wise comparison
+val compareAndReplace = udf((str1: String, str2: String) => {
+  val length = math.min(str1.length, str2.length)
+  val result = str1.zip(str2).map { case (c1, c2) =>
+    if (c1 == c2) ' ' else c1
+  }.mkString
+  if (str1.length > length) result + str1.substring(length)
+  else result
+})
 
-    private static Map<String, List<String>> cacheTextFile(String textFilePath) throws IOException {
-        Map<String, List<String>> textDataMap = new HashMap<>();
-        BufferedReader br = new BufferedReader(new FileReader(textFilePath));
-        String line;
+// Join DataFrames on the 'id' column
+val joinedDF = data1.as("df1").join(data2.as("df2"), $"df1.id" === $"df2.id")
 
-        while ((line = br.readLine()) != null) {
-            String[] parts = line.split("\\|");
-            if (parts.length == 2) {
-                String id = parts[0];
-                String address = parts[1];
-                textDataMap.computeIfAbsent(id, k -> new ArrayList<>()).add(address);
-            }
-        }
+// Apply the UDF to the 'col1' columns of both DataFrames
+val resultDF = joinedDF.withColumn("compared_col1", compareAndReplace($"df1.col1", $"df2.col1"))
 
-        br.close();
-        return textDataMap;
-    }
-
-    private static void processAvroFile(String avroFilePath, Map<String, List<String>> textDataMap, String outputAvroPath) throws IOException {
-        // Define the schema for the output Avro file
-        String schemaJson = "{"
-                + "\"namespace\": \"example.avro\","
-                + "\"type\": \"record\","
-                + "\"name\": \"OutputRecord\","
-                + "\"fields\": ["
-                + "{\"name\": \"id\", \"type\": \"string\"},"
-                + "{\"name\": \"avroData\", \"type\": \"string\"},"  // Adjust this type based on actual Avro data structure
-                + "{\"name\": \"address\", \"type\": \"string\"}"
-                + "]"
-                + "}";
-
-        Schema schema = new Schema.Parser().parse(schemaJson);
-
-        DataFileReader<GenericRecord> avroReader = null;
-        DataFileWriter<GenericRecord> avroWriter = null;
-
-        try {
-            // Open Avro file for reading
-            SeekableFileInput inputAvro = new SeekableFileInput(new File(avroFilePath));
-            avroReader = new DataFileReader<>(inputAvro, new GenericDatumReader<>());
-
-            // Open output Avro file for writing
-            avroWriter = new DataFileWriter<>(new GenericDatumWriter<>(schema));
-            avroWriter.create(schema, new File(outputAvroPath));
-
-            // Process each record in the Avro file
-            while (avroReader.hasNext()) {
-                GenericRecord avroRecord = avroReader.next();
-                String idAvro = avroRecord.get("id").toString(); // Change "id" to actual field name in your Avro schema
-                String avroData = avroRecord.toString(); // Adjust as needed to get specific fields
-
-                // Find matching addresses from the cached map
-                List<String> addresses = textDataMap.get(idAvro);
-                if (addresses != null) {
-                    for (String address : addresses) {
-                        GenericRecord outputRecord = new GenericData.Record(schema);
-                        outputRecord.put("id", idAvro);
-                        outputRecord.put("avroData", avroData);  // Adjust based on actual data structure
-                        outputRecord.put("address", address);
-
-                        avroWriter.append(outputRecord);
-                    }
-                }
-            }
-        } finally {
-            if (avroReader != null) avroReader.close();
-            if (avroWriter != null) avroWriter.close();
-        }
-    }
-}
+// Select the required columns to display
+resultDF.select($"id", $"compared_col1").show()
