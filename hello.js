@@ -1,40 +1,17 @@
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions._
+# Define the base directory where your Git repositories are located
+$baseDir = "C:\path\to\your\repositories"
 
-val spark = SparkSession.builder.appName("CompareColumns").getOrCreate()
-import spark.implicits._
+# Recursively find and delete all target directories
+Get-ChildItem -Path $baseDir -Recurse -Directory -Force | Where-Object {
+    Test-Path "$($_.FullName)\.git" -PathType Container
+} | ForEach-Object {
+    $repoDir = $_.FullName
+    Write-Host "Processing repository in: $repoDir"
+    Get-ChildItem -Path $repoDir -Recurse -Directory -Filter "target" -Force | ForEach-Object {
+        $targetDir = $_.FullName
+        Write-Host "Deleting: $targetDir"
+        Remove-Item -Path $targetDir -Recurse -Force
+    }
+}
 
-// Example data
-val data1 = Seq(
-  (1, "abcd", "other1"),
-  (2, "efgh", "other2"),
-  (3, "ijkl", "other3")
-).toDF("id", "col1", "col2")
-
-val data2 = Seq(
-  (1, "abxy", "other4"),
-  (2, "efzz", "other5"),
-  (3, "ijkl", "other6")
-).toDF("id", "col1", "col2")
-
-data1.show()
-data2.show()
-
-// UDF for character-wise comparison
-val compareAndReplace = udf((str1: String, str2: String) => {
-  val length = math.min(str1.length, str2.length)
-  val result = str1.zip(str2).map { case (c1, c2) =>
-    if (c1 == c2) ' ' else c1
-  }.mkString
-  if (str1.length > length) result + str1.substring(length)
-  else result
-})
-
-// Join DataFrames on the 'id' column
-val joinedDF = data1.as("df1").join(data2.as("df2"), $"df1.id" === $"df2.id")
-
-// Apply the UDF to the 'col1' columns of both DataFrames
-val resultDF = joinedDF.withColumn("compared_col1", compareAndReplace($"df1.col1", $"df2.col1"))
-
-// Select the required columns to display
-resultDF.select($"id", $"compared_col1").show()
+Write-Host "Completed."
