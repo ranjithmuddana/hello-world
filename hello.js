@@ -1,1 +1,14 @@
-Get-ChildItem -Path (Get-Location) -Recurse -Directory -Force | Where-Object { Test-Path "$($_.FullName)\.git" -PathType Container } | ForEach-Object { Get-ChildItem -Path $_.FullName -Recurse -Directory -Filter "target" -Force } | ForEach-Object { Write-Host "Deleting:" $_.FullName; Remove-Item -Path $_.FullName -Recurse -Force }
+$baseDir = Get-Location
+
+$folders = Get-ChildItem -Path $baseDir -Directory -Recurse | ForEach-Object {
+    $folderPath = $_.FullName
+    $folderSize = (Get-ChildItem -Path $folderPath -Recurse | Measure-Object -Property Length -Sum).Sum
+    [PSCustomObject]@{
+        Path = $folderPath
+        Size = [Math]::Round($folderSize / 1MB, 2)
+    }
+}
+
+$sortedFolders = $folders | Sort-Object -Property Size -Descending
+
+$sortedFolders | ForEach-Object { Write-Host "Path: $($_.Path) Size: $($_.Size) MB" }
