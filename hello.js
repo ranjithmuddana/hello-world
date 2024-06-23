@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# File to store directories of failed builds
+FAILED_BUILDS_FILE=".failed_builds"
+
 # Directories to skip (update with your specific directories)
 declare -a directories_to_skip=(
     "directory1"
@@ -32,8 +35,14 @@ build_project() {
         
         # Run Maven command and capture stdout and stderr to log file
         mvn clean install > "$log_file" 2>&1
-        
-        echo "Build process for directory $dir completed."
+        local status=$?
+
+        if [[ $status -ne 0 ]]; then
+            echo "Build failed for directory: $dir (see $log_file for details)"
+            echo "$dir" >> "$FAILED_BUILDS_FILE"  # Record the failed build directory
+        else
+            echo "Build succeeded for directory: $dir"
+        fi
     ) &
     
     # Store the background process ID
@@ -58,8 +67,24 @@ cleanup() {
 # Trap signals to ensure cleanup even on script termination
 trap cleanup EXIT
 
+# Determine whether to rebuild only failed projects
+rebuild_failed=false
+if [[ "$1" == "--retry-failed" ]]; then
+    rebuild_failed=true
+fi
+
 # Iterate over direct subdirectories and build projects in parallel
-for dir in */; do
+if $rebuild_failed && [[ -f "$FAILED_BUILDS_FILE" ]]; then
+    echo "Rebuilding only failed projects..."
+    directories=$(cat "$FAILED_BUILDS_FILE")
+else
+    echo "Building all projects..."
+    directories=$(ls -d */)
+    # Clear the failed builds file at the beginning of a full build
+    > "$FAILED_BUILDS_FILE"
+fi
+
+for dir in $directories; do
     if should_skip_directory "$(basename "$dir")"; then
         echo "Skipping directory: $dir"
         continue
