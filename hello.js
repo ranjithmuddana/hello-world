@@ -23,6 +23,8 @@ for server in servers:
     for key, value in server_dict.items():
         if isinstance(value, bytes):
             server_dict[key] = value.decode('utf-8')  # Convert bytes to string
+        elif value is None:
+            server_dict[key] = None
     servers_dict.append(server_dict)
 
 # Write the server configurations to a JSON file
