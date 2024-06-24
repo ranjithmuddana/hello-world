@@ -11,6 +11,7 @@ function Invoke-SSHCommandFromConfig {
 
         # Parse SSH config file
         $hosts = @{}
+        $currentHost = $null
         $configContent -split "\r?\n" | ForEach-Object {
             $line = $_.Trim()
             if ($line -match '^Host\s+(.+)') {
