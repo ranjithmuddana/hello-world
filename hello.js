@@ -10,14 +10,20 @@ conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
 # Fetch server configurations
-cursor.execute("SELECT * FROM servers")
+cursor.execute("SELECT * FROM server")
 servers = cursor.fetchall()
 
-# Define column names for the servers table
+# Define column names for the server table
 columns = [desc[0] for desc in cursor.description]
 
 # Convert the server configurations to a list of dictionaries
-servers_dict = [dict(zip(columns, server)) for server in servers]
+servers_dict = []
+for server in servers:
+    server_dict = dict(zip(columns, server))
+    for key, value in server_dict.items():
+        if isinstance(value, bytes):
+            server_dict[key] = value.decode('utf-8')  # Convert bytes to string
+    servers_dict.append(server_dict)
 
 # Write the server configurations to a JSON file
 with open('pgadmin_servers.json', 'w') as f:
