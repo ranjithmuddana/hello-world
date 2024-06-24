@@ -1,44 +1,35 @@
-function issh {
-    $keyPath = "C:\Users\YourUser\Documents\mykey"  # Update this path to your key file
-    
-    # Get the filter substring from the user
-    $filterSubstring = Read-Host "Enter the substring to filter instance names (leave empty to show all)"
-    
-    # Fetch the list of running instances
-    $instancesJson = gcloud compute instances list --filter="status=RUNNING" --format="json(name,zone,networkInterfaces[0].networkIP)"
-    $instances = $instancesJson | ConvertFrom-Json
-    
-    # Filter instances by name if a filter substring is provided
-    if ($filterSubstring) {
-        $instances = $instances | Where-Object { $_.name -like "*$filterSubstring*" }
-    }
+function ExecuteSSHCommand {
+    param (
+        [string]$Username = $env:SSH_USERNAME,  # Default to environment variable if not provided
+        [string]$Host = $env:SSH_HOST          # Default to environment variable if not provided
+    )
 
-    if ($instances.Count -eq 0) {
-        Write-Host "No running instances found matching the filter."
-        return
-    }
+    # Define a list of hosts to choose from
+    $validHosts = @("host1.example.com", "host2.example.com", "host3.example.com")
 
-    # Display the list of instances
-    Write-Host "Select an instance to connect:"
-    for ($i = 0; $i -lt $instances.Count; $i++) {
-        Write-Host "$i. $($instances[$i].name) in $($instances[$i].zone) with internal IP $($instances[$i].networkInterfaces[0].networkIP)"
-    }
-
-    # Get user selection
-    $selection = Read-Host "Enter the number of the instance"
-    if ($selection -match '^\d+$' -and $selection -ge 0 -and $selection -lt $instances.Count) {
-        $instance = $instances[$selection]
-        $instanceName = $instance.name
-        $instanceZone = $instance.zone
-        $internalIP = $instance.networkInterfaces[0].networkIP
-        
-        # Connect via SSH
-        if ($internalIP) {
-            ssh -i $keyPath $env:USERNAME@$internalIP
-        } else {
-            Write-Host "Failed to retrieve the internal IP address of the selected instance."
+    # Prompt user to select a host if $Host is not provided or not in $validHosts
+    if (-not $Host -or $validHosts -notcontains $Host) {
+        Write-Output "Choose a host to connect to:"
+        for ($i = 0; $i -lt $validHosts.Count; $i++) {
+            Write-Output "$($i + 1). $($validHosts[$i])"
         }
-    } else {
-        Write-Host "Invalid selection."
+        $hostChoice = Read-Host "Enter host number (1-$($validHosts.Count)):"
+        $Host = $validHosts[$hostChoice - 1]
     }
+
+    # Construct SSH command
+    $sshCommand = "ssh"
+    if ($Username) {
+        $sshCommand += " $Username@"
+    }
+    $sshCommand += " $Host"
+
+    # Execute SSH command
+    Write-Output "Executing SSH command:"
+    Write-Output $sshCommand
+    # Uncomment the following line to actually execute the SSH command
+    # Invoke-Expression $sshCommand
 }
+
+# Example usage:
+# ExecuteSSHCommand -Username "myusername" -Host "host1.example.com"
