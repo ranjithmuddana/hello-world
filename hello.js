@@ -9,28 +9,37 @@ function Invoke-SSHCommandFromConfig {
         # Read SSH config file
         $configContent = Get-Content $sshConfigFile -Raw
 
-        # Parse SSH config file
+        # Initialize variables to store hosts and their configurations
         $hosts = @{}
         $currentHost = $null
-        $configContent -split "\r?\n" | ForEach-Object {
-            $line = $_.Trim()
+
+        # Parse SSH config file
+        foreach ($line in $configContent -split "\r?\n") {
+            $line = $line.Trim()
             if ($line -match '^Host\s+(.+)') {
+                # New host entry found
                 $currentHost = $matches[1].Trim()
                 $hosts[$currentHost] = @{}
-            }
-            elseif ($line -match '^\s*([A-Za-z]+)\s+(.+)$' -and $currentHost) {
-                $key = $matches[1].Trim()
-                $value = $matches[2].Trim()
-                $hosts[$currentHost][$key] = $value
+            } elseif ($line -match '^\s*HostName\s+(.+)$' -and $currentHost) {
+                # HostName line found, capture the IP address
+                $hosts[$currentHost]['IPAddress'] = $matches[1].Trim()
+            } elseif ($line -match '^\s*User\s+(.+)$' -and $currentHost) {
+                # User line found, capture the username if needed
+                $hosts[$currentHost]['User'] = $matches[1].Trim()
             }
         }
+
+        # Print the contents of the $hosts object for debugging
+        Write-Output "Contents of \$hosts object after reading SSH config file:"
+        $hosts | Format-List  # Display $hosts as a list for readability
+        Write-Output "==============================="
 
         if ($hosts.Count -gt 0) {
             # Present host names to user
             Write-Output "Available hosts from SSH config:"
             $index = 1
             $hosts.Keys | ForEach-Object {
-                Write-Output "$index. $_"
+                Write-Output "$index. $_ - $($hosts[$_]['IPAddress'])"
                 $index++
             }
 
@@ -42,7 +51,7 @@ function Invoke-SSHCommandFromConfig {
                 Write-Output "Selected host: $selectedHost"
 
                 # Execute SSH command
-                $sshHostname = $hosts[$selectedHost]['HostName']
+                $sshHostname = $hosts[$selectedHost]['IPAddress']
                 $sshUser = $hosts[$selectedHost]['User']  # Assuming 'User' is specified in config
                 $sshCommand = "ssh"
                 if ($sshUser) {
