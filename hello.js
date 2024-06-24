@@ -1,12 +1,20 @@
 function issh {
     $keyPath = "C:\Users\YourUser\Documents\mykey"  # Update this path to your key file
     
+    # Get the filter substring from the user
+    $filterSubstring = Read-Host "Enter the substring to filter instance names (leave empty to show all)"
+    
     # Fetch the list of running instances
     $instancesJson = gcloud compute instances list --filter="status=RUNNING" --format="json(name,zone,networkInterfaces[0].networkIP)"
     $instances = $instancesJson | ConvertFrom-Json
     
+    # Filter instances by name if a filter substring is provided
+    if ($filterSubstring) {
+        $instances = $instances | Where-Object { $_.name -like "*$filterSubstring*" }
+    }
+
     if ($instances.Count -eq 0) {
-        Write-Host "No running instances found."
+        Write-Host "No running instances found matching the filter."
         return
     }
 
