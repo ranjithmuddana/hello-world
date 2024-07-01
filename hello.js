@@ -1,27 +1,14 @@
-import org.apache.beam.sdk.transforms.DoFn;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+# Import the BurntToast module
+Import-Module BurntToast
 
-public abstract class BaseDoFn<InputT, OutputT> extends DoFn<InputT, OutputT> {
-    private static final Logger LOG = LoggerFactory.getLogger(BaseDoFn.class);
+# Define break intervals in minutes
+$breakInterval = 60  # 60 minutes or 1 hour
 
-    @StartBundle
-    public void startBundle(StartBundleContext context) {
-        // Common start bundle logic
-        LOG.info("Starting bundle...");
-    }
+# Infinite loop for continuous reminders
+while ($true) {
+    # Display toast notification
+    New-BurntToastNotification -Text "It's time for a break! Take a few minutes to relax and stretch." -AppLogo "C:\Path\To\Your\Logo.png"
 
-    @FinishBundle
-    public void finishBundle(FinishBundleContext context) {
-        // Common finish bundle logic
-        LOG.info("Finishing bundle...");
-    }
-
-    @ProcessElement
-    public void processElement(ProcessContext context) {
-        // Delegating the processing logic to the concrete subclass
-        processElementImpl(context);
-    }
-
-    protected abstract void processElementImpl(ProcessContext context);
+    # Wait for the break interval
+    Start-Sleep -Seconds ($breakInterval * 60)  # Convert minutes to seconds
 }
