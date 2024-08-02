@@ -5,12 +5,13 @@ DECLARE
     json_text TEXT;
 BEGIN
     -- Extract the block under 'items:' using regular expressions
-    items_block := regexp_match(
-        yaml_text, 
-        'items:\s*(\s*(-\s*\{[^}]+\}\s*)+)', 
-        'n'
-    )[1];
-    
+    SELECT INTO items_block
+        regexp_matches(
+            yaml_text, 
+            'items:\s*(\s*(-\s*\{[^}]+\}\s*)+)',
+            'n'
+        )[1];
+
     -- If no 'items:' block is found, return an empty JSON array
     IF items_block IS NULL THEN
         RETURN '[]'::jsonb;
@@ -23,7 +24,7 @@ BEGIN
         '{"\1"}',
         'g'
     );
-    
+
     -- Ensure proper JSON array brackets
     json_text := '[' || replace(json_text, '}, {', '},\n{') || ']';
 
