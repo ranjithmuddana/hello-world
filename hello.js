@@ -1,37 +1,23 @@
-WITH raw_data AS (
-    SELECT content
-    FROM yaml_data
-    WHERE id = 1
-), extracted_items AS (
-    SELECT
-        regexp_matches(
-            content,
-            'items:\s*(-\s*\{[^}]+\}\s*)+',
-            'g'
-        ) AS items_block
-    FROM raw_data
-), items_list AS (
-    SELECT
-        regexp_split_to_table(
-            regexp_replace(
-                items_block[1],
-                '-\s*\{([^}]+)\}',
-                '\1',
-                'g'
-            ),
-            '\n\s*-'
-        ) AS item
-    FROM extracted_items
-), parsed_items AS (
-    SELECT
-        regexp_matches(
-            item,
-            'element1:\s*([^,]+),\s*element2:\s*([^}]+)',
-            'g'
-        ) AS elements
-    FROM items_list
-)
-SELECT
-    elements[1] AS element1,
-    elements[2] AS element2
-FROM parsed_items;
+CREATE OR REPLACE FUNCTION yaml_to_json(yaml_text TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    json_text TEXT;
+BEGIN
+    -- Replace YAML syntax with JSON syntax
+    json_text := replace(yaml_text, '{', '{"');
+    json_text := replace(json_text, '}', '"}');
+    json_text := replace(json_text, ': ', '": "');
+    json_text := replace(json_text, ', ', '", "');
+    json_text := replace(json_text, '\n', ' ');
+
+    -- Add proper JSON array brackets
+    json_text := regexp_replace(json_text, '(\s*\[\s*)', '[', 'g');
+    json_text := regexp_replace(json_text, '(\s*\]\s*)', ']', 'g');
+    
+    -- Convert to JSONB
+    RETURN jsonb(json_text);
+EXCEPTION
+    WHEN others THEN
+        RAISE EXCEPTION 'Failed to convert YAML to JSON: %', SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
