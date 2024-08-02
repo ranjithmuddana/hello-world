@@ -3,16 +3,18 @@ RETURNS JSONB AS $$
 DECLARE
     json_text TEXT;
 BEGIN
-    -- Replace YAML syntax with JSON syntax
-    json_text := replace(yaml_text, '{', '{"');
-    json_text := replace(json_text, '}', '"}');
-    json_text := replace(json_text, ': ', '": "');
+    -- Replace YAML elements with JSON structure
+    json_text := replace(yaml_text, ': ', '": "');
     json_text := replace(json_text, ', ', '", "');
-    json_text := replace(json_text, '\n', ' ');
-
-    -- Add proper JSON array brackets
-    json_text := regexp_replace(json_text, '(\s*\[\s*)', '[', 'g');
-    json_text := regexp_replace(json_text, '(\s*\]\s*)', ']', 'g');
+    
+    -- Handle object boundaries
+    json_text := regexp_replace(json_text, '\{\s*(.*)\s*\}', '{"\1"}', 'g');
+    
+    -- Handle array boundaries
+    json_text := regexp_replace(json_text, '-\s*', '{"');
+    json_text := regexp_replace(json_text, '\s*:\s*', '": "');
+    json_text := regexp_replace(json_text, '},\s*{', '},{"');
+    json_text := replace(json_text, '}', '"}');
     
     -- Convert to JSONB
     RETURN jsonb(json_text);
