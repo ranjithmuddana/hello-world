@@ -1,25 +1,32 @@
-CREATE OR REPLACE FUNCTION yaml_to_json(yaml_text TEXT)
+CREATE OR REPLACE FUNCTION yaml_to_json_items(yaml_text TEXT)
 RETURNS JSONB AS $$
 DECLARE
+    items_block TEXT;
     json_text TEXT;
 BEGIN
-    -- Replace YAML syntax with JSON syntax
-    json_text := replace(yaml_text, ': ', '": "');
-    json_text := replace(json_text, ', ', '", "');
+    -- Extract the block under 'items:' using regular expressions
+    items_block := regexp_match(
+        yaml_text, 
+        'items:\s*(\s*(-\s*\{[^}]+\}\s*)+)', 
+        'n'
+    )[1];
     
-    -- Replace list items with proper JSON array syntax
-    json_text := regexp_replace(json_text, '\s*-\s*{', '{"', 'g');
-    json_text := replace(json_text, '}', '"}', 'g');
-    json_text := replace(json_text, '\n', '",\n"', 'g');
+    -- If no 'items:' block is found, return an empty JSON array
+    IF items_block IS NULL THEN
+        RETURN '[]'::jsonb;
+    END IF;
+
+    -- Replace YAML list syntax with JSON array syntax
+    json_text := regexp_replace(
+        items_block,
+        '-\s*\{([^}]+)\}',
+        '{"\1"}',
+        'g'
+    );
     
-    -- Replace item lists with proper JSON array syntax
-    json_text := replace(json_text, '\nitems:', ',"items":[\n');
-    json_text := replace(json_text, '\n', '},\n', 'g');
-    json_text := replace(json_text, '}\n', '}', 'g');
-    
-    -- Handle edge cases where there are trailing commas or extra characters
-    json_text := regexp_replace(json_text, ',\s*}', '}', 'g');
-    
+    -- Ensure proper JSON array brackets
+    json_text := '[' || replace(json_text, '}, {', '},\n{') || ']';
+
     -- Convert to JSONB
     RETURN jsonb(json_text);
 EXCEPTION
