@@ -4,30 +4,34 @@ WITH raw_data AS (
     WHERE id = 1
 ), extracted_items AS (
     SELECT
-        substring(
-            content FROM 
-            'items:\s*((?:\s*-\s*\{[^}]+\}\s*)+)'
+        regexp_matches(
+            content,
+            'items:\s*(-\s*\{[^}]+\}\s*)+',
+            'g'
         ) AS items_block
     FROM raw_data
-), cleaned_items AS (
+), items_list AS (
     SELECT
-        trim(both '{}' FROM unnest(regexp_split_to_array(
+        regexp_split_to_table(
             regexp_replace(
-                items_block,
-                '\s*-\s*\{([^}]+)\}\s*',
+                items_block[1],
+                '-\s*\{([^}]+)\}',
                 '\1',
                 'g'
             ),
-            '\},\s*\{'
-        ))) AS item
+            '\n\s*-'
+        ) AS item
     FROM extracted_items
-), parsed_elements AS (
+), parsed_items AS (
     SELECT
-        trim(both ' ' FROM split_part(item, ',', 1)) AS element1,
-        trim(both ' ' FROM split_part(item, ',', 2)) AS element2
-    FROM cleaned_items
+        regexp_matches(
+            item,
+            'element1:\s*([^,]+),\s*element2:\s*([^}]+)',
+            'g'
+        ) AS elements
+    FROM items_list
 )
 SELECT
-    substring(element1 FROM 'element1:\s*(.*)') AS element1_value,
-    substring(element2 FROM 'element2:\s*(.*)') AS element2_value
-FROM parsed_elements;
+    elements[1] AS element1,
+    elements[2] AS element2
+FROM parsed_items;
