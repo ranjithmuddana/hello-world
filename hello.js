@@ -2,11 +2,11 @@ WITH raw_data AS (
     SELECT content
     FROM yaml_data
     WHERE id = 1
-), extracted_section AS (
+), extracted_items AS (
     SELECT
         substring(
             content FROM 
-            'custom_object:\s*items:\s*((?:\s*-\s*\S+\s*)+)'
+            'items:\s*((?:\s*-\s*\S+\s*)+)'
         ) AS items_block
     FROM raw_data
 ), cleaned_items AS (
@@ -20,7 +20,7 @@ WITH raw_data AS (
             ),
             '\s+'
         ) AS item
-    FROM extracted_section
+    FROM extracted_items
 )
 SELECT item
 FROM cleaned_items
