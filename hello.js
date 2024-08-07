@@ -1,89 +1,41 @@
-$(document).ready(function () {
-    // Sample data
-    var data = [
-        { category: 'Fruit', item: 'Apple' },
-        { category: 'Vegetable', item: 'Carrot' }
-    ];
-
-    // Initialize the jqxGrid
-    $("#grid").jqxGrid({
-        width: 600,
-        height: 400,
-        source: new $.jqx.dataAdapter({
-            localdata: data,
-            datatype: "array",
-            datafields: [
-                { name: 'category', type: 'string' },
-                { name: 'item', type: 'string' }
-            ]
-        }),
-        columns: [
-            { text: 'Category', datafield: 'category', width: 200 },
-            { text: 'Item', datafield: 'item', width: 200, columntype: 'textbox',
-              createeditor: function (row, column, editor) {
-                  var category = $('#grid').jqxGrid('getcellvalue', row, 'category');
-                  
-                  if (category === 'Vegetable') {
-                      // Create a dropdown list editor for 'Vegetable'
-                      var items = getItemsBasedOnCategory(category);
-                      editor.jqxDropDownList({
-                          source: items,
-                          autoDropDownHeight: true,
-                          width: '100%',
-                          height: '100%'
-                      });
-                  } else {
-                      // Create a textbox editor for 'Fruit'
-                      editor.jqxInput({
-                          width: '100%',
-                          height: '100%'
-                      });
-                  }
-              },
-              initeditor: function (row, column, editor) {
-                  var item = $('#grid').jqxGrid('getcellvalue', row, 'item');
-                  var category = $('#grid').jqxGrid('getcellvalue', row, 'category');
-                  
-                  if (category === 'Vegetable') {
-                      editor.jqxDropDownList('selectItem', item);
-                  } else {
-                      editor.val(item);
-                  }
-              }
-            }
-        ]
-    });
-
-    // Function to get items based on category
-    function getItemsBasedOnCategory(category) {
-        var items = [];
-        switch (category) {
-            case 'Fruit':
-                items = [];
-                break;
-            case 'Vegetable':
-                items = ['Carrot', 'Potato', 'Tomato'];
-                break;
-            default:
-                items = [];
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="https://www.jqwidgets.com/public/jqwidgets/styles/jqx.base.css" type="text/css" />
+    <script type="text/javascript" src="https://www.jqwidgets.com/public/jqwidgets/jqx-all.js"></script>
+    <style>
+        .invalid-input {
+            border: 1px solid red !important;
         }
-        return items;
-    }
+    </style>
+</head>
+<body>
+    <div id="comboBox"></div>
 
-    // Update the editor when the category changes
-    $("#grid").on('cellvaluechanged', function (event) {
-        var rowindex = event.args.rowindex;
-        var datafield = event.args.datafield;
-        var value = event.args.value;
+    <script type="text/javascript">
+        $(document).ready(function () {
+            var source = ['Option 1', 'Option 2', 'Option 3'];
 
-        if (datafield === 'category') {
-            var column = $('#grid').jqxGrid('getcolumn', 'item');
-            var cell = $('#grid').jqxGrid('getcellvalue', rowindex, 'item');
-            
-            // Refresh the editor for 'item' column
-            $('#grid').jqxGrid('beginupdate');
-            $('#grid').jqxGrid('setcellvalue', rowindex, 'item', cell); // force update
-            $('#grid').jqxGrid('endupdate');
-        }
-    });
-});
+            $("#comboBox").jqxComboBox({
+                source: source,
+                autoComplete: false,  // Disable auto-complete
+                width: '200px',
+                height: '25px',
+                autoDropDownHeight: true,
+                enableBrowserBoundsDetection: true // Helps with dropdown positioning
+            });
+
+            $("#comboBox").on('change', function (event) {
+                var selectedItem = event.args.item ? event.args.item.value : '';
+                if (source.indexOf(selectedItem) === -1) {
+                    $(this).addClass('invalid-input');
+                    // Optionally clear the invalid value
+                    $(this).jqxComboBox('clearSelection');
+                } else {
+                    $(this).removeClass('invalid-input');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
