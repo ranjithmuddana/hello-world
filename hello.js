@@ -1,69 +1,56 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <link rel="stylesheet" href="https://www.jqwidgets.com/public/jqwidgets/styles/jqx.base.css" type="text/css" />
-    <link rel="stylesheet" href="https://www.jqwidgets.com/public/jqwidgets/styles/jqx.light.css" type="text/css" />
-    <script type="text/javascript" src="https://www.jqwidgets.com/public/jqwidgets/jqx-all.js"></script>
-    <style>
-        .invalid-input {
-            border: 1px solid red !important;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Calendar;
+
+public class DateConverter {
+    public static void main(String[] args) {
+        String inputDateStr = "12341234";  // Change this to test other dates
+        if (isValidDate(inputDateStr)) {
+            SimpleDateFormat inputFormat = new SimpleDateFormat("yyyyMMdd");
+            SimpleDateFormat outputFormat = new SimpleDateFormat("yyyy-MM-dd");
+
+            try {
+                Date date = inputFormat.parse(inputDateStr);
+                String outputDateStr = outputFormat.format(date);
+                System.out.println("Converted Date: " + outputDateStr);
+            } catch (ParseException e) {
+                e.printStackTrace();
+            }
+        } else {
+            System.out.println("Invalid date: " + inputDateStr);
         }
-    </style>
-</head>
-<body>
-    <div id="grid"></div>
+    }
 
-    <script type="text/javascript">
-        $(document).ready(function () {
-            var source = [
-                { name: 'John', country: 'USA' },
-                { name: 'Anna', country: 'Germany' },
-                { name: 'Peter', country: 'Sweden' }
-            ];
+    public static boolean isValidDate(String dateStr) {
+        if (dateStr.length() != 8) {
+            return false;
+        }
 
-            var comboBoxSource = ['USA', 'Germany', 'Sweden'];
+        String yearStr = dateStr.substring(0, 4);
+        String monthStr = dateStr.substring(4, 6);
+        String dayStr = dateStr.substring(6, 8);
 
-            $("#grid").jqxGrid({
-                width: 600,
-                height: 400,
-                source: new $.jqx.dataAdapter({
-                    localdata: source,
-                    datatype: 'array',
-                    datafields: [
-                        { name: 'name', type: 'string' },
-                        { name: 'country', type: 'string' }
-                    ]
-                }),
-                columns: [
-                    { text: 'Name', dataField: 'name', width: 200 },
-                    {
-                        text: 'Country',
-                        dataField: 'country',
-                        width: 400,
-                        cellsrenderer: function (row, column, value, defaultHtml, columnSettings, rowData) {
-                            return `<div id="comboBox${row}" class="jqxComboBox"></div>`;
-                        },
-                        createeditor: function (row, column, editor, cellValue, cellText) {
-                            editor.jqxComboBox({
-                                source: comboBoxSource,
-                                autoComplete: false,
-                                width: '100%',
-                                height: '100%'
-                            });
-                        },
-                        cellvaluechanging: function (row, column, oldValue, newValue) {
-                            // Validate new value
-                            if (comboBoxSource.indexOf(newValue) === -1) {
-                                // Reset value to oldValue if newValue is not valid
-                                $("#grid").jqxGrid('setcellvalue', row, column, oldValue);
-                                return false; // Prevent the cell value change
-                            }
-                            return true; // Allow the cell value change
-                        }
-                    }
-                ]
-            });
-        });
-    </script>
-</body>
-</html>
+        int year = Integer.parseInt(yearStr);
+        int month = Integer.parseInt(monthStr);
+        int day = Integer.parseInt(dayStr);
+
+        if (month < 1 || month > 12) {
+            return false;
+        }
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.setLenient(false);
+        calendar.set(Calendar.YEAR, year);
+        calendar.set(Calendar.MONTH, month - 1); // Calendar months are 0-based
+        calendar.set(Calendar.DAY_OF_MONTH, day);
+
+        try {
+            Date date = calendar.getTime();
+        } catch (Exception e) {
+            return false;
+        }
+
+        return true;
+    }
+}
