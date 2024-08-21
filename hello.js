@@ -1,34 +1,26 @@
-flowchart LR
-    %% Define the titles on the left side
-    titleA["**Title A**"]
-    titleB["**Title B**"]
-    titleC["**Title C**"]
-
-    %% Define the subgraphs
-    subgraph A[" "]
-        direction TB
+flowchart TB
+    %% Define the first swimlane
+    subgraph LANE1["Title A"]
+        direction LR
         A1[Item A1]
         A2[Item A2]
     end
 
-    subgraph B[" "]
-        direction TB
+    %% Define the second swimlane
+    subgraph LANE2["Title B"]
+        direction LR
         B1[Item B1]
         B2[Item B2]
     end
 
-    subgraph C[" "]
-        direction TB
+    %% Define the third swimlane
+    subgraph LANE3["Title C"]
+        direction LR
         C1[Item C1]
         C2[Item C2]
     end
 
-    %% Linking titles to subgraphs
-    titleA --> A
-    titleB --> B
-    titleC --> C
-
-    %% Linking the items between subgraphs
+    %% Linking the items across lanes
     A1 --> B1
     B1 --> C1
     A2 --> B2
