@@ -1,27 +1,40 @@
 flowchart TB
-    %% Define the first swimlane
-    subgraph LANE1["Title A"]
-        direction LR
-        A1[Item A1]
-        A2[Item A2]
+    %% Define the main container (e.g., VPC or Project)
+    subgraph MAIN["GCP Project"]
+        
+        %% Define a sub-container for a region (e.g., us-central1)
+        subgraph REGION1["us-central1"]
+            direction TB
+            
+            %% Define a sub-container for a VPC
+            subgraph VPC1["VPC Network"]
+                direction TB
+                
+                %% Define resources within the VPC
+                VM1[Compute Engine VM 1]
+                VM2[Compute Engine VM 2]
+                LB[Load Balancer]
+                
+            end
+        end
+
+        %% Define another region or container
+        subgraph REGION2["europe-west1"]
+            direction TB
+            
+            %% Define another VPC or resources
+            subgraph VPC2["VPC Network"]
+                direction TB
+                
+                GKE[Google Kubernetes Engine]
+                SQL[Cloud SQL]
+                
+            end
+        end
     end
 
-    %% Define the second swimlane
-    subgraph LANE2["Title B"]
-        direction LR
-        B1[Item B1]
-        B2[Item B2]
-    end
-
-    %% Define the third swimlane
-    subgraph LANE3["Title C"]
-        direction LR
-        C1[Item C1]
-        C2[Item C2]
-    end
-
-    %% Linking the items across lanes
-    A1 --> B1
-    B1 --> C1
-    A2 --> B2
-    B2 --> C2
+    %% Define connections between resources
+    VM1 --> LB
+    VM2 --> LB
+    LB --> GKE
+    GKE --> SQL
