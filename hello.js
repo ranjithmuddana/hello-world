@@ -9,15 +9,22 @@ SELECT
     DATE_FORMAT(trunc(add_months(current_date(), -3), 'MM'), 'MMddyyyy') AS three_months_ago_start
     
     
-    
-    SELECT COUNT(*) AS dupcntcc
-FROM (
+ query = """
+WITH counts AS (
+    SELECT DUPKEY,
+           COUNT(*) AS total_count
+    FROM sortedce
+    GROUP BY DUPKEY
+),
+filtered AS (
     SELECT DUPKEY
-    FROM (
-        SELECT DUPKEY, 
-               ROW_NUMBER() OVER (PARTITION BY DUPKEY ORDER BY VALUE) AS row_num,
-               COUNT(*) OVER (PARTITION BY DUPKEY) AS total_rows
-        FROM sortedce
-    ) tmp
-    WHERE row_num > 1 AND row_num < total_rows
-) subquery
+    FROM sortedce
+    JOIN counts ON sortedce.DUPKEY = counts.DUPKEY
+    WHERE total_count > 2
+)
+SELECT COUNT(*) AS dupcntcc
+FROM filtered
+"""
+
+result = spark.sql(query)
+result.show()
