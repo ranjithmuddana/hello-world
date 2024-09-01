@@ -7,3 +7,17 @@ SELECT
 
     -- Calculate the first day of the month three months ago
     DATE_FORMAT(trunc(add_months(current_date(), -3), 'MM'), 'MMddyyyy') AS three_months_ago_start
+    
+    
+    
+    SELECT COUNT(*) AS dupcntcc
+FROM (
+    SELECT DUPKEY
+    FROM (
+        SELECT DUPKEY, 
+               ROW_NUMBER() OVER (PARTITION BY DUPKEY ORDER BY VALUE) AS row_num,
+               COUNT(*) OVER (PARTITION BY DUPKEY) AS total_rows
+        FROM sortedce
+    ) tmp
+    WHERE row_num > 1 AND row_num < total_rows
+) subquery
