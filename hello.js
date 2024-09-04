@@ -1,27 +1,10 @@
-import org.apache.spark.sql.SparkSession
-
-val spark = SparkSession.builder.appName("CheckStringValueSQL").getOrCreate()
-
-// SQL query with VALUES clause
-val resultDf = spark.sql(
-  """
-  SELECT 
+-- Check if all rows have exactly three pipes
+SELECT 
     CASE 
-      WHEN CAST(TRIM(COALESCE(value, '')) AS INT) > 999 THEN '999'
-      ELSE TRIM(COALESCE(value, ''))
-    END AS value
-  FROM (
-    VALUES 
-      ('500'),
-      (' 1000 '),
-      ('1500'),
-      ('999'),
-      ('200'),
-      (NULL),
-      ('')
-  ) AS values_table(value)
-  """
-)
-
-// Show the result
-resultDf.show(false)
+        WHEN COUNT(*) = 0 THEN 'Assertion Passed: All rows have exactly 3 pipes'
+        ELSE CONCAT('Assertion Failed: There are ', COUNT(*), ' rows that do not have exactly 3 pipes')
+    END AS assertion_result
+FROM 
+    your_table
+WHERE 
+    LENGTH(col) - LENGTH(REPLACE(col, '|', '')) != 3;
