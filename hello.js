@@ -1,9 +1,8 @@
--- Check if all rows have exactly three pipes
 SELECT 
-    CASE 
-        WHEN COUNT(*) = 0 THEN 'Assertion Passed: All rows have exactly 3 pipes'
-        ELSE CONCAT('Assertion Failed: There are ', COUNT(*), ' rows that do not have exactly 3 pipes')
-    END AS assertion_result
+    ASSERT_TRUE(
+        COUNT(*) = 0,
+        'There are rows that do not have exactly 3 pipes'
+    )
 FROM 
     your_table
 WHERE 
