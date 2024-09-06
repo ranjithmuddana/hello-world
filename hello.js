@@ -1,22 +1,22 @@
 import org.apache.spark.sql.functions.udf
 import scala.xml.{Elem, XML}
 
-// Function to convert XML element to a fixed format string
-def xmlElementToFixed(element: scala.xml.Node): String = {
-  val elementName = element.label
-  val text = element.text.trim
-  val attributes = element.attributes.asAttrMap.map { case (key, value) => s"$key=$value" }.mkString(", ")
-  
-  val children = element.child.filter(_.isInstanceOf[Elem]).map(xmlElementToFixed).mkString(" | ")
-  
-  s"Element: $elementName, Text: $text, Attributes: [$attributes], Children: [$children]"
+// Function to extract all text content from XML elements and children
+def extractTextFromXml(element: scala.xml.Node): String = {
+  // Collect text from the current element and its children
+  val textContent = element.text.trim
+  val childTexts = element.child.filter(_.isInstanceOf[Elem]).map(extractTextFromXml).mkString(" ")
+
+  // Concatenate text from current element and its children
+  val combinedText = if (textContent.nonEmpty) textContent else ""
+  s"$combinedText $childTexts".trim
 }
 
 // Define the UDF
-val xmlToFixed = udf((xmlStr: String) => {
+val xmlToTextUDF = udf((xmlStr: String) => {
   try {
     val root = XML.loadString(xmlStr)
-    xmlElementToFixed(root)
+    extractTextFromXml(root)
   } catch {
     case _: Exception => null
   }
