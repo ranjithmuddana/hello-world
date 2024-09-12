@@ -17,8 +17,10 @@ public class WebClientLoggingExample {
                 .filter(logResponse())
                 .build();
 
-        client.get()
+        // Example request with body
+        client.post()
               .uri("/path")
+              .bodyValue("Sample request body")
               .retrieve()
               .bodyToMono(String.class)
               .subscribe(response -> log.info("Response body: {}", response));
@@ -30,7 +32,26 @@ public class WebClientLoggingExample {
             clientRequest.headers().forEach((name, values) -> 
                 values.forEach(value -> log.info("{}: {}", name, value))
             );
-            return Mono.just(clientRequest);
+
+            // If request has a body, we need to log it here
+            return Mono.just(clientRequest)
+                    .flatMap(request -> {
+                        return logRequestBody(clientRequest);
+                    });
+        });
+    }
+
+    private static Mono<ClientRequest> logRequestBody(ClientRequest request) {
+        return Mono.defer(() -> {
+            if (request.body() != null) {
+                // Buffer and log the body
+                return request.body()
+                        .log() // Optionally, log the reactive chain (if you want low-level logging)
+                        .doOnNext(buffer -> log.info("Request body: {}", buffer))
+                        .then(Mono.just(request));
+            } else {
+                return Mono.just(request);
+            }
         });
     }
 
