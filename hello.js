@@ -116,4 +116,19 @@ public class LoggingWebFilter implements WebFilter {
                         // Merge DataBuffers to capture response body
                         DataBuffer joinedBuffer = new DefaultDataBufferFactory().join(dataBuffers);
                         byte[] responseBodyBytes = new byte[joinedBuffer.readableByteCount()];
-                        joinedBuffer.read(response​⬤
+                        joinedBuffer.read(responseBodyBytes);
+
+                        String responseBody = new String(responseBodyBytes, StandardCharsets.UTF_8);
+
+                        // Log response body or add to MDC
+                        MDC.put("Response", responseBody);
+
+                        // Release buffers
+                        dataBuffers.forEach(DataBufferUtils::release);
+
+                        // Return a single DataBuffer with the original content to send the response
+                        return super.writeWith(Flux.just(joinedBuffer));
+                    });
+            }
+        };
+​⬤
