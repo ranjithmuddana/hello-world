@@ -1,12 +1,10 @@
-private void logRequestBody(ClientRequest request) {
-        if (request.body() != null) {
-            Mono<String> bodyMono = request.body().insert((outputStream, context) -> {
-                byte[] content = new byte[outputStream.readableByteCount()];
-                outputStream.read(content);
-                logger.info("Request body: {}", new String(content, StandardCharsets.UTF_8));
-                return Mono.just(outputStream);
-            }).then(Mono.empty());
-
-            bodyMono.subscribe();
+private Mono<ClientRequest> logRequestBody(ClientRequest request) {
+        if (request.body().isEmpty()) {
+            return Mono.just(request);
         }
+        return request.body().map(body -> {
+            String bodyString = new String(body.asByteArray(), StandardCharsets.UTF_8);
+            logger.info("Request body: {}", bodyString);
+            return body;
+        }).map(body -> ClientRequest.from(request).body(body).build());
     }
