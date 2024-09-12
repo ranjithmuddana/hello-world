@@ -5,6 +5,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -32,8 +33,8 @@ public class LoggingWebFilter implements WebFilter {
 
         // Generate UUID and set response header
         String uuid = UUID.randomUUID().toString();
-        ServerHttpResponse response = exchange.getResponse();
-        HttpHeaders headers = response.getHeaders();
+        ServerHttpResponse originalResponse = exchange.getResponse();
+        HttpHeaders headers = originalResponse.getHeaders();
         headers.add("X-Request-ID", uuid);
         headers.add("X-App-ID", APP_ID);
 
@@ -65,14 +66,16 @@ public class LoggingWebFilter implements WebFilter {
                 }
 
                 // Rewrap the request body into a new ServerHttpRequest
-                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                    .build();
+                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate().build();
 
                 // Provide the body as a Flux<DataBuffer> to the next filter in the chain
                 Flux<DataBuffer> cachedFlux = Flux.defer(() -> {
                     DataBuffer buffer = new DefaultDataBufferFactory().wrap(requestBodyBytes);
                     return Flux.just(buffer);
                 });
+
+                // Decorate the response
+                ServerHttpResponseDecorator decoratedResponse = decorateResponse(exchange, originalResponse);
 
                 // Update MDC with request details
                 MDC.put("RequestURI", requestUri);
@@ -86,8 +89,8 @@ public class LoggingWebFilter implements WebFilter {
                 MDC.put("AppId", APP_ID); // Add appId to MDC
                 MDC.put("RequestID", uuid); // Add UUID to MDC
 
-                // Proceed with the chain using the wrapped request and modified body
-                return chain.filter(exchange.mutate().request(mutatedRequest).build())
+                // Proceed with the chain using the wrapped request and decorated response
+                return chain.filter(exchange.mutate().request(mutatedRequest).response(decoratedResponse).build())
                     .then(Mono.defer(() -> {
                         // Add MDC information for response after request processing is done
                         Instant endTime = Instant.now();
@@ -102,5 +105,34 @@ public class LoggingWebFilter implements WebFilter {
                         MDC.clear();
                     });
             });
+    }
+
+    private ServerHttpResponseDecorator decorateResponse(ServerWebExchange exchange, ServerHttpResponse originalResponse) {
+        return new ServerHttpResponseDecorator(originalResponse) {
+            @Override
+            public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+                // Capture response body
+                return Flux.from(body)
+                    .buffer()
+                    .map(dataBuffers -> {
+                        // Merge DataBuffers to capture response body
+                        DataBuffer joinedBuffer = new DefaultDataBufferFactory().join(dataBuffers);
+                        byte[] responseBodyBytes = new byte[joinedBuffer.readableByteCount()];
+                        joinedBuffer.read(responseBodyBytes);
+
+                        String responseBody = new String(responseBodyBytes, StandardCharsets.UTF_8);
+
+                        // Log response body or add to MDC
+                        MDC.put("Response", responseBody);
+
+                        // Release buffers
+                        dataBuffers.forEach(DataBufferUtils::release);
+
+                        // Return a single DataBuffer with the original content to send the response
+                        return joinedBuffer;
+                    })
+                    .flatMap(dataBuffer -> super.writeWith(Flux.just(dataBuffer)));
+            }
+        };
     }
 }
