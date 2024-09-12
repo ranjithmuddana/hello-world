@@ -1,68 +1,109 @@
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.MDC;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
+import org.springframework.web.server.ServerHttpResponse;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 
 @Component
 public class LoggingWebFilter implements WebFilter {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // Capture start time
         Instant startTime = Instant.now();
+        
+        // Capture request details
+        String requestMethod = exchange.getRequest().getMethodValue();
+        String requestUri = exchange.getRequest().getURI().toString();
+        String userAgent = exchange.getRequest().getHeaders().getFirst("User-Agent");
+        String contentType = exchange.getRequest().getHeaders().getFirst("Content-Type");
 
-        // Add incoming request details to MDC
-        MDC.put("requestEndpoint", exchange.getRequest().getURI().getPath());
-        MDC.put("eventType", "Incoming Request");
-        MDC.put("httpMethod", exchange.getRequest().getMethodValue());
-        MDC.put("userAgent", exchange.getRequest().getHeaders().getFirst("User-Agent"));
-        MDC.put("contentType", exchange.getRequest().getHeaders().getContentType() != null
-                ? exchange.getRequest().getHeaders().getContentType().toString() 
-                : "Unknown");
-
-        // Capture a field from the request body (example: "name" field in JSON)
-        // You can modify this section depending on your request structure
+        // Buffer the request body
         return exchange.getRequest().getBody()
-            .next()
-            .flatMap(dataBuffer -> {
-                // Convert buffer to string to extract a field from JSON
-                String requestBody = dataBuffer.toString();
-                // Extract a field (e.g., "name") from the JSON (pseudo-code)
-                String fieldValue = extractFieldFromJson(requestBody, "name");
-                MDC.put("requestField", fieldValue != null ? fieldValue : "N/A");
-                return chain.filter(exchange)
-                    .doOnSuccess(unused -> logRequestResponseDetails(exchange, startTime))
-                    .doFinally(signalType -> MDC.clear());
+            .collectList()
+            .flatMap(bufferList -> {
+                byte[] requestBody = bufferList.stream()
+                    .reduce((a, b) -> a.concat(b))
+                    .orElse(new byte[0]);
+
+                // Parse JSON field from request body
+                String specificField = "N/A";
+                try {
+                    JsonNode rootNode = objectMapper.readTree(requestBody);
+                    JsonNode fieldNode = rootNode.path("specificField"); // Adjust path as needed
+                    if (!fieldNode.isMissingNode()) {
+                        specificField = fieldNode.asText();
+                    }
+                } catch (IOException e) {
+                    specificField = "Error parsing JSON";
+                }
+
+                // Convert byte array back to DataBuffer for request
+                DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(requestBody);
+
+                // Capture and wrap the response
+                ServerHttpResponse decoratedResponse = new DecoratingServerHttpResponse(exchange.getResponse(), buffer);
+
+                // Populate MDC with request details
+                MDC.put("RequestURI", requestUri);
+                MDC.put("HttpMethod", requestMethod);
+                MDC.put("UserAgent", userAgent);
+                MDC.put("ContentType", contentType);
+                MDC.put("StartTime", startTime.toString());
+                MDC.put("EventType", "Incoming Request");
+                MDC.put("Request", new String(requestBody)); // Add request body to MDC
+                MDC.put("SpecificField", specificField);
+
+                // Continue with the request processing
+                return chain.filter(exchange.mutate().request(exchange.getRequest().mutate().body(Flux.just(buffer)).build()).build())
+                    .then(Mono.defer(() -> {
+                        // Update MDC with response details
+                        MDC.put("Response", new String(decoratedResponse.getBuffer().asByteBuffer().array())); // Add response body to MDC
+                        MDC.put("ResponseStatus", decoratedResponse.getStatusCode() != null ? decoratedResponse.getStatusCode().toString() : "UNKNOWN");
+                        MDC.put("EndTime", Instant.now().toString());
+                        MDC.put("Duration", Duration.between(startTime, Instant.now()).toMillis() + " ms");
+                        MDC.put("EventType", "Outgoing Request");
+                        return Mono.empty();
+                    }))
+                    .doFinally(signalType -> {
+                        // Clear MDC only after request processing is complete
+                        MDC.clear();
+                    });
             });
     }
+}
 
-    private void logRequestResponseDetails(ServerWebExchange exchange, Instant startTime) {
-        // Log outgoing request details
-        MDC.put("eventType", "Outgoing Request");
-        MDC.put("statusCode", String.valueOf(exchange.getResponse().getStatusCode().value()));
-        MDC.put("statusMessage", exchange.getResponse().getStatusCode().getReasonPhrase());
+class DecoratingServerHttpResponse extends ServerHttpResponseDecorator {
 
-        // Capture end time and duration
-        Instant endTime = Instant.now();
-        long duration = Duration.between(startTime, endTime).toMillis();
-        MDC.put("startTime", startTime.toString());
-        MDC.put("endTime", endTime.toString());
-        MDC.put("duration", duration + "ms");
+    private final DataBuffer dataBuffer;
 
-        // Log the details using the logger (you can adjust this to your needs)
-        org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(LoggingWebFilter.class);
-        logger.info("Request-Response completed: {}", MDC.getCopyOfContextMap());
+    public DecoratingServerHttpResponse(ServerHttpResponse delegate, DataBuffer dataBuffer) {
+        super(delegate);
+        this.dataBuffer = dataBuffer;
     }
 
-    // Placeholder method to extract field from JSON request
-    private String extractFieldFromJson(String json, String fieldName) {
-        // Logic to parse JSON and extract the field (e.g., using Jackson or any other parser)
-        // For simplicity, returning null here. Replace with actual JSON parsing logic.
-        return null;
+    @Override
+    public Flux<DataBuffer> writeWith(Publisher<? extends DataBuffer> body) {
+        return super.writeWith(Flux.concat(Flux.just(dataBuffer), Flux.from(body)));
+    }
+
+    @Override
+    public Mono<Void> writeWith(Publisher<? extends DataBuffer> body, DataBufferFactory dataBufferFactory) {
+        return super.writeWith(Flux.concat(Flux.just(dataBuffer), Flux.from(body)), dataBufferFactory);
+    }
+
+    public DataBuffer getBuffer() {
+        return this.dataBuffer;
     }
 }
