@@ -47,23 +47,27 @@ public class WebClientLoggingExample {
     private static Mono<ClientRequest> logRequestBody(ClientRequest request) {
         return Mono.defer(() -> {
             if (request.body() != null) {
-                // Buffer and log the body (DataBuffer is used to capture the body in WebFlux)
-                return request.body().insert(BodyInserters.fromPublisher(Flux.empty(), Void.class))
-                        .flatMap(body -> {
-                            DataBufferUtils.join(body)
-                                    .flatMap(dataBuffer -> {
-                                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                        dataBuffer.read(bytes);
-                                        DataBufferUtils.release(dataBuffer); // Always release the data buffer
-                                        String bodyString = new String(bytes, StandardCharsets.UTF_8);
-                                        log.info("Request body: {}", bodyString);
+                // Clone the request to buffer the body and log it
+                return Mono.defer(() -> {
+                    // Here, we assume the request body is a Flux<DataBuffer>
+                    // This should be customized based on your specific request type (e.g., Flux or Mono)
+                    Flux<DataBuffer> bodyFlux = request.body().orElse(Flux.empty());
+                    
+                    // Join the body parts into a single buffer to log
+                    return DataBufferUtils.join(bodyFlux)
+                            .flatMap(dataBuffer -> {
+                                byte[] bodyBytes = new byte[dataBuffer.readableByteCount()];
+                                dataBuffer.read(bodyBytes);
+                                DataBufferUtils.release(dataBuffer); // Release the buffer
+                                String body = new String(bodyBytes, StandardCharsets.UTF_8);
+                                log.info("Request body: {}", body);
 
-                                        // Now, we re-create the request with the same body
-                                        return Mono.just(ClientRequest.from(request)
-                                                .body(BodyInserters.fromValue(bodyString))
-                                                .build());
-                                    });
-                        });
+                                // Now re-create the request with the same body
+                                return Mono.just(ClientRequest.from(request)
+                                        .body(BodyInserters.fromPublisher(Mono.just(body), String.class))
+                                        .build());
+                            });
+                });
             } else {
                 return Mono.just(request);
             }
