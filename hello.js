@@ -7,22 +7,31 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.server.ServerHttpResponse;
+import org.springframework.web.server.ServerHttpRequest;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 @Component
 public class LoggingWebFilter implements WebFilter {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String APP_ID = "myAppId"; // Set your appId here
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         Instant startTime = Instant.now();
         
+        // Generate UUID and set response header
+        String uuid = UUID.randomUUID().toString();
+        ServerHttpResponse response = exchange.getResponse();
+        response.getHeaders().add("X-Request-ID", uuid);
+        response.getHeaders().add("X-App-ID", APP_ID);
+
         // Capture request details
         String requestMethod = exchange.getRequest().getMethodValue();
         String requestUri = exchange.getRequest().getURI().toString();
@@ -53,7 +62,7 @@ public class LoggingWebFilter implements WebFilter {
                 DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(requestBody);
 
                 // Capture and wrap the response
-                ServerHttpResponse decoratedResponse = new DecoratingServerHttpResponse(exchange.getResponse(), buffer);
+                ServerHttpResponse decoratedResponse = new DecoratingServerHttpResponse(response, buffer);
 
                 // Populate MDC with request details
                 MDC.put("RequestURI", requestUri);
@@ -64,6 +73,8 @@ public class LoggingWebFilter implements WebFilter {
                 MDC.put("EventType", "Incoming Request");
                 MDC.put("Request", new String(requestBody)); // Add request body to MDC
                 MDC.put("SpecificField", specificField);
+                MDC.put("AppId", APP_ID); // Add appId to MDC
+                MDC.put("RequestID", uuid); // Add UUID to MDC
 
                 // Continue with the request processing
                 return chain.filter(exchange.mutate().request(exchange.getRequest().mutate().body(Flux.just(buffer)).build()).build())
@@ -71,6 +82,7 @@ public class LoggingWebFilter implements WebFilter {
                         // Update MDC with response details
                         MDC.put("Response", new String(decoratedResponse.getBuffer().asByteBuffer().array())); // Add response body to MDC
                         MDC.put("ResponseStatus", decoratedResponse.getStatusCode() != null ? decoratedResponse.getStatusCode().toString() : "UNKNOWN");
+                        MDC.put("ResponseID", decoratedResponse.getHeaders().getFirst("X-Request-ID")); // Add UUID from response header
                         MDC.put("EndTime", Instant.now().toString());
                         MDC.put("Duration", Duration.between(startTime, Instant.now()).toMillis() + " ms");
                         MDC.put("EventType", "Outgoing Request");
