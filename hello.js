@@ -1,12 +1,16 @@
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.nio.charset.StandardCharsets;
 
 public class WebClientLoggingExample {
 
@@ -43,15 +47,22 @@ public class WebClientLoggingExample {
     private static Mono<ClientRequest> logRequestBody(ClientRequest request) {
         return Mono.defer(() -> {
             if (request.body() != null) {
-                return DataBufferUtils.join(request.body().insert(BodyInserters.fromValue("")))
-                        .map(dataBuffer -> {
-                            byte[] bodyBytes = new byte[dataBuffer.readableByteCount()];
-                            dataBuffer.read(bodyBytes);
-                            DataBufferUtils.release(dataBuffer); // Release the buffer
-                            String body = new String(bodyBytes);
-                            log.info("Request body: {}", body);
+                // Buffer and log the body (DataBuffer is used to capture the body in WebFlux)
+                return request.body().insert(BodyInserters.fromPublisher(Flux.empty(), Void.class))
+                        .flatMap(body -> {
+                            DataBufferUtils.join(body)
+                                    .flatMap(dataBuffer -> {
+                                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                                        dataBuffer.read(bytes);
+                                        DataBufferUtils.release(dataBuffer); // Always release the data buffer
+                                        String bodyString = new String(bytes, StandardCharsets.UTF_8);
+                                        log.info("Request body: {}", bodyString);
 
-                            return ClientRequest.from(request).body(BodyInserters.fromValue(body)).build();
+                                        // Now, we re-create the request with the same body
+                                        return Mono.just(ClientRequest.from(request)
+                                                .body(BodyInserters.fromValue(bodyString))
+                                                .build());
+                                    });
                         });
             } else {
                 return Mono.just(request);
@@ -74,7 +85,7 @@ public class WebClientLoggingExample {
                 .flatMap(body -> {
                     log.info("Response body: {}", body);
                     // Return a new ClientResponse with the same body
-                    return Mono.just(ClientResponse.from(response).body(body).build());
+                    return Mono.just(ClientResponse.from(response).body(BodyInserters.fromValue(body)).build());
                 });
     }
 }
