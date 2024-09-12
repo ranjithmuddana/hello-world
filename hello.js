@@ -74,6 +74,11 @@ public class LoggingWebFilter implements WebFilter {
                     return Flux.just(buffer);
                 });
 
+                ServerHttpRequest decoratedRequest = exchange.getRequest().mutate()
+                    .header("X-Request-ID", uuid)
+                    .header("X-App-ID", APP_ID)
+                    .build();
+
                 // Decorate the response
                 ServerHttpResponseDecorator decoratedResponse = decorateResponse(exchange, originalResponse, startTime);
 
@@ -90,7 +95,7 @@ public class LoggingWebFilter implements WebFilter {
                 MDC.put("RequestID", uuid); // Add UUID to MDC
 
                 // Proceed with the chain using the wrapped request and decorated response
-                return chain.filter(exchange.mutate().request(mutatedRequest).response(decoratedResponse).build())
+                return chain.filter(exchange.mutate().request(decoratedRequest).response(decoratedResponse).build())
                     .doOnSuccess(unused -> {
                         // Log after the response is processed
                         Instant endTime = Instant.now();
@@ -111,7 +116,7 @@ public class LoggingWebFilter implements WebFilter {
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
                 // Capture response body
                 return Flux.from(body)
-                    .buffer()
+                    .collectList()
                     .flatMap(dataBuffers -> {
                         // Merge DataBuffers to capture response body
                         DataBuffer joinedBuffer = new DefaultDataBufferFactory().join(dataBuffers);
