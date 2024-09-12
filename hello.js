@@ -1,75 +1,55 @@
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
-import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
-import org.springframework.stereotype.Component;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
-import reactor.core.publisher.Flux;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
+public class WebClientLoggingExample {
 
-@Component
-public class RequestResponseCachingFilter implements WebFilter {
+    private static final Logger log = LoggerFactory.getLogger(WebClientLoggingExample.class);
 
-    @Override
-    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse originalResponse = exchange.getResponse();
+    public static void main(String[] args) {
+        WebClient client = WebClient.builder()
+                .baseUrl("https://example.com")
+                .filter(logRequest())
+                .filter(logResponse())
+                .build();
 
-        // Cache the request body
-        return DataBufferUtils.join(request.getBody())
-                .flatMap(requestBuffer -> {
-                    byte[] requestBodyBytes = new byte[requestBuffer.readableByteCount()];
-                    requestBuffer.read(requestBodyBytes);
-                    DataBufferUtils.release(requestBuffer); // Release memory
-                    String cachedRequestBody = new String(requestBodyBytes, StandardCharsets.UTF_8);
+        client.get()
+              .uri("/path")
+              .retrieve()
+              .bodyToMono(String.class)
+              .subscribe(response -> log.info("Response body: {}", response));
+    }
 
-                    // Create a ServerHttpRequestDecorator to cache the request
-                    ServerHttpRequest cachedRequest = new ServerHttpRequestDecorator(request) {
-                        @Override
-                        public Flux<DataBuffer> getBody() {
-                            DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(requestBodyBytes);
-                            return Flux.just(buffer);
-                        }
-                    };
+    private static ExchangeFilterFunction logRequest() {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            log.info("Request: {} {}", clientRequest.method(), clientRequest.url());
+            clientRequest.headers().forEach((name, values) -> 
+                values.forEach(value -> log.info("{}: {}", name, value))
+            );
+            return Mono.just(clientRequest);
+        });
+    }
 
-                    // Cache the response body
-                    ServerHttpResponseDecorator cachedResponse = new ServerHttpResponseDecorator(originalResponse) {
-                        @Override
-                        public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-                            // Collect the response body
-                            Flux<? extends DataBuffer> bodyFlux = Flux.from(body);
-                            return super.writeWith(bodyFlux.buffer().map(dataBuffers -> {
-                                DataBuffer joinedBuffer = exchange.getResponse().bufferFactory().join(dataBuffers);
-                                byte[] responseBodyBytes = new byte[joinedBuffer.readableByteCount()];
-                                joinedBuffer.read(responseBodyBytes);
-                                DataBufferUtils.release(joinedBuffer); // Release memory
-                                String cachedResponseBody = new String(responseBodyBytes, StandardCharsets.UTF_8);
+    private static ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
+            log.info("Response status: {}", clientResponse.statusCode());
+            clientResponse.headers().asHttpHeaders().forEach((name, values) ->
+                values.forEach(value -> log.info("{}: {}", name, value))
+            );
+            return logResponseBody(clientResponse);
+        });
+    }
 
-                                // You can now log or store `cachedResponseBody` and `cachedRequestBody`
-                                System.out.println("Cached Request Body: " + cachedRequestBody);
-                                System.out.println("Cached Response Body: " + cachedResponseBody);
-
-                                // Return a DataBuffer that contains the cached response body
-                                return exchange.getResponse().bufferFactory().wrap(responseBodyBytes);
-                            }));
-                        }
-
-                        @Override
-                        public Mono<Void> writeAndFlushWith(Publisher<? extends Publisher<? extends DataBuffer>> body) {
-                            return writeWith(Flux.from(body).flatMapSequential(p -> p));
-                        }
-                    };
-
-                    return chain.filter(exchange.mutate()
-                            .request(cachedRequest)
-                            .response(cachedResponse)
-                            .build());
+    private static Mono<ClientResponse> logResponseBody(ClientResponse response) {
+        return response.bodyToMono(String.class)
+                .flatMap(body -> {
+                    log.info("Response body: {}", body);
+                    // Return a new ClientResponse with the same body
+                    return Mono.just(ClientResponse.from(response).body(body).build());
                 });
     }
 }
