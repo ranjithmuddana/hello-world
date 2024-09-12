@@ -1,5 +1,7 @@
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
@@ -33,22 +35,24 @@ public class WebClientLoggingExample {
                 values.forEach(value -> log.info("{}: {}", name, value))
             );
 
-            // If request has a body, we need to log it here
-            return Mono.just(clientRequest)
-                    .flatMap(request -> {
-                        return logRequestBody(clientRequest);
-                    });
+            // If request has a body, buffer and log it
+            return logRequestBody(clientRequest);
         });
     }
 
     private static Mono<ClientRequest> logRequestBody(ClientRequest request) {
         return Mono.defer(() -> {
             if (request.body() != null) {
-                // Buffer and log the body
-                return request.body()
-                        .log() // Optionally, log the reactive chain (if you want low-level logging)
-                        .doOnNext(buffer -> log.info("Request body: {}", buffer))
-                        .then(Mono.just(request));
+                return DataBufferUtils.join(request.body().insert(BodyInserters.fromValue("")))
+                        .map(dataBuffer -> {
+                            byte[] bodyBytes = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(bodyBytes);
+                            DataBufferUtils.release(dataBuffer); // Release the buffer
+                            String body = new String(bodyBytes);
+                            log.info("Request body: {}", body);
+
+                            return ClientRequest.from(request).body(BodyInserters.fromValue(body)).build();
+                        });
             } else {
                 return Mono.just(request);
             }
