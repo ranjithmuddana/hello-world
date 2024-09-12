@@ -75,7 +75,7 @@ public class LoggingWebFilter implements WebFilter {
                 });
 
                 // Decorate the response
-                ServerHttpResponseDecorator decoratedResponse = decorateResponse(exchange, originalResponse);
+                ServerHttpResponseDecorator decoratedResponse = decorateResponse(exchange, originalResponse, startTime);
 
                 // Update MDC with request details
                 MDC.put("RequestURI", requestUri);
@@ -105,7 +105,7 @@ public class LoggingWebFilter implements WebFilter {
             });
     }
 
-    private ServerHttpResponseDecorator decorateResponse(ServerWebExchange exchange, ServerHttpResponse originalResponse) {
+    private ServerHttpResponseDecorator decorateResponse(ServerWebExchange exchange, ServerHttpResponse originalResponse, Instant startTime) {
         return new ServerHttpResponseDecorator(originalResponse) {
             @Override
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
@@ -120,8 +120,9 @@ public class LoggingWebFilter implements WebFilter {
 
                         String responseBody = new String(responseBodyBytes, StandardCharsets.UTF_8);
 
-                        // Log response body or add to MDC
-                        MDC.put("Response", responseBody);
+                        // Add response body and status to MDC
+                        MDC.put("ResponseStatusCode", String.valueOf(getStatusCode().value()));
+                        MDC.put("ResponseBody", responseBody);
 
                         // Release buffers
                         dataBuffers.forEach(DataBufferUtils::release);
@@ -130,5 +131,14 @@ public class LoggingWebFilter implements WebFilter {
                         return super.writeWith(Flux.just(joinedBuffer));
                     });
             }
+
+            private HttpHeaders getResponseHeaders() {
+                return this.getHeaders();
+            }
+
+            private HttpStatus getStatusCode() {
+                return this.getStatusCode() != null ? this.getStatusCode() : HttpStatus.OK;
+            }
         };
-​⬤
+    }
+}
