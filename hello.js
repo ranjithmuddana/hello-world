@@ -91,15 +91,13 @@ public class LoggingWebFilter implements WebFilter {
 
                 // Proceed with the chain using the wrapped request and decorated response
                 return chain.filter(exchange.mutate().request(mutatedRequest).response(decoratedResponse).build())
-                    .then(Mono.defer(() -> {
-                        // Add MDC information for response after request processing is done
+                    .doOnSuccess(unused -> {
+                        // Log after the response is processed
                         Instant endTime = Instant.now();
                         MDC.put("EndTime", endTime.toString());
                         MDC.put("Duration", Duration.between(startTime, endTime).toMillis() + " ms");
                         MDC.put("EventType", "Outgoing Request");
-
-                        return Mono.empty();
-                    }))
+                    })
                     .doFinally(signalType -> {
                         // Clear MDC after processing is done
                         MDC.clear();
@@ -114,25 +112,8 @@ public class LoggingWebFilter implements WebFilter {
                 // Capture response body
                 return Flux.from(body)
                     .buffer()
-                    .map(dataBuffers -> {
+                    .flatMap(dataBuffers -> {
                         // Merge DataBuffers to capture response body
                         DataBuffer joinedBuffer = new DefaultDataBufferFactory().join(dataBuffers);
                         byte[] responseBodyBytes = new byte[joinedBuffer.readableByteCount()];
-                        joinedBuffer.read(responseBodyBytes);
-
-                        String responseBody = new String(responseBodyBytes, StandardCharsets.UTF_8);
-
-                        // Log response body or add to MDC
-                        MDC.put("Response", responseBody);
-
-                        // Release buffers
-                        dataBuffers.forEach(DataBufferUtils::release);
-
-                        // Return a single DataBuffer with the original content to send the response
-                        return joinedBuffer;
-                    })
-                    .flatMap(dataBuffer -> super.writeWith(Flux.just(dataBuffer)));
-            }
-        };
-    }
-}
+                        joinedBuffer.read(response​⬤
