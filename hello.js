@@ -1,158 +1,77 @@
-import org.reactivestreams.Publisher;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.codec.Hints;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferFactory;
-import org.springframework.core.io.buffer.DefaultDataBufferFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.reactive.ClientHttpRequest;
-import org.springframework.http.codec.HttpMessageWriter;
-import org.springframework.web.reactive.function.BodyInserter;
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.http2.client.HTTP2Client;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.slf4j.MDC;
+import org.springframework.http.client.reactive.JettyClientHttpConnector;
 import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.server.ServerRequest;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
-public class WebClientConfig {
+public class WebClientWithGlobalMdcHandler {
 
-    private static final Logger logger = LoggerFactory.getLogger(WebClientConfig.class);
+    public static void main(String[] args) throws Exception {
+        // Jetty 12 HttpClient with HTTP/2 support
+        SslContextFactory.Client sslContextFactory = new SslContextFactory.Client();
+        HTTP2Client http2Client = new HTTP2Client();
+        HttpClient httpClient = new HttpClient(http2Client);
+        httpClient.setSslContextFactory(sslContextFactory);
+        httpClient.start();
 
-    public WebClient webClient() {
-        return WebClient.builder()
-                .filter(logRequest())
+        JettyClientHttpConnector connector = new JettyClientHttpConnector(httpClient);
+
+        // Create WebClient with global MDC handling
+        WebClient webClient = WebClient.builder()
+                .clientConnector(connector)
+                .filter(mdcContextFilter())  // Add the MDC filter to the WebClient
                 .build();
-    }
 
-    private ExchangeFilterFunction logRequest() {
-        return ExchangeFilterFunction.ofRequestProcessor(this::logRequestDetails);
-    }
+        // Example of making a WebClient request
+        MDC.put("traceId", "12345");
 
-    private Mono<ClientRequest> logRequestDetails(ClientRequest request) {
-        logger.info("Request: {} {}", request.method(), request.url());
-        
-        BodyInserter<?, ? super ClientHttpRequest> bodyInserter = request.body();
-        
-        if (bodyInserter.isEmpty()) {
-            return Mono.just(request);
-        }
-
-        return Mono.defer(() -> {
-            DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
-            MockClientHttpRequest mockRequest = new MockClientHttpRequest(request.method(), request.url(), bufferFactory);
-            
-            return bodyInserter.insert(mockRequest, new BodyInserter.Context() {
-                @Override
-                public List<HttpMessageWriter<?>> messageWriters() {
-                    return ExchangeStrategies.withDefaults().messageWriters();
-                }
-
-                @Override
-                public Optional<ServerRequest> serverRequest() {
-                    return Optional.empty();
-                }
-
-                @Override
-                public Map<String, Object> hints() {
-                    return Hints.none();
-                }
-
-                @Override
-                public void beforeCommit(Supplier<? extends Mono<Void>> action) {
-                }
-
-                @Override
-                public boolean hasBody() {
-                    return true;
-                }
-            })
-            .then(Mono.defer(() -> {
-                Flux<DataBuffer> body = mockRequest.getBody();
-                return body.reduce(bufferFactory.allocateBuffer(), (previous, current) -> {
-                    previous.write(current);
-                    DataBufferUtils.release(current);
-                    return previous;
-                })
-                .doOnNext(buffer -> {
-                    byte[] bytes = new byte[buffer.readableByteCount()];
-                    buffer.read(bytes);
-                    DataBufferUtils.release(buffer);
-                    String bodyString = new String(bytes, StandardCharsets.UTF_8);
-                    logger.info("Request body: {}", bodyString);
-                })
-                .then(Mono.just(request));
-            }));
-        });
-    }
-
-    // Mock implementation of ClientHttpRequest for capturing the body
-    private static class MockClientHttpRequest implements ClientHttpRequest {
-        private final HttpMethod method;
-        private final URI uri;
-        private final DataBufferFactory bufferFactory;
-        private final Flux<DataBuffer> body;
-        private final HttpHeaders headers = new HttpHeaders();
-
-        MockClientHttpRequest(HttpMethod method, URI uri, DataBufferFactory bufferFactory) {
-            this.method = method;
-            this.uri = uri;
-            this.bufferFactory = bufferFactory;
-            this.body = Flux.create(sink -> {
-                sink.onRequest(n -> {
-                    // Do nothing, we're just capturing the body
+        webClient.get()
+                .uri("https://example.com")
+                .retrieve()
+                .bodyToMono(String.class)
+                .subscribeOn(Schedulers.boundedElastic())
+                .doFinally(signalType -> MDC.clear())  // Clear MDC after request is done
+                .subscribe(response -> {
+                    System.out.println("Response: " + response);
                 });
-            });
-        }
 
-        @Override
-        public DataBufferFactory bufferFactory() {
-            return this.bufferFactory;
-        }
+        // Ensure proper shutdown of Jetty HttpClient
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                httpClient.stop();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }));
+    }
 
-        @Override
-        public HttpHeaders getHeaders() {
-            return this.headers;
-        }
+    /**
+     * MDC context propagation filter for WebClient.
+     * Copies the current MDC context into the reactive pipeline for each WebClient request.
+     */
+    private static ExchangeFilterFunction mdcContextFilter() {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            // Capture the MDC context at the start of the request
+            Map<String, String> contextMap = MDC.getCopyOfContextMap();
 
-        @Override
-        public HttpMethod getMethod() {
-            return this.method;
-        }
-
-        @Override
-        public URI getURI() {
-            return this.uri;
-        }
-
-        @Override
-        public Flux<DataBuffer> getBody() {
-            return body;
-        }
-
-        @Override
-        public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-            return Flux.from(body).doOnNext(data -> ((Flux<DataBuffer>)this.body).doOnNext(sink -> sink.next(data))).then();
-        }
-
-        @Override
-        public Mono<Void> writeAndFlushWith(Publisher<? extends Publisher<? extends DataBuffer>> body) {
-            return Flux.from(body).flatMap(this::writeWith).then();
-        }
-
-        @Override
-        public Mono<Void> setComplete() {
-            return Mono.empty();
-        }
+            return Mono.just(ClientRequest.from(clientRequest)
+                    .build())
+                    .doOnEach(signal -> {
+                        if (contextMap != null) {
+                            // Restore the MDC context in the reactive pipeline
+                            MDC.setContextMap(contextMap);
+                        }
+                    });
+        }).andThen((clientRequest, next) -> next.exchange(clientRequest)
+                .doFinally(signalType -> MDC.clear())  // Clear MDC after the request is done
+        );
     }
 }
