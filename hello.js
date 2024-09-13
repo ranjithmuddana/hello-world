@@ -2,19 +2,23 @@ import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.http2.client.HTTP2Client;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.slf4j.MDC;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.JettyClientHttpConnector;
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Signal;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.context.Context;
 
 import java.util.Map;
 
-public class WebClientWithGlobalMdcHandler {
+@Configuration
+public class WebClientConfig {
 
-    public static void main(String[] args) throws Exception {
+    @Bean
+    public WebClient webClient() throws Exception {
         // Jetty 12 HttpClient with HTTP/2 support
         SslContextFactory.Client sslContextFactory = new SslContextFactory.Client();
         HTTP2Client http2Client = new HTTP2Client();
@@ -24,54 +28,60 @@ public class WebClientWithGlobalMdcHandler {
 
         JettyClientHttpConnector connector = new JettyClientHttpConnector(httpClient);
 
-        // Create WebClient with global MDC handling
-        WebClient webClient = WebClient.builder()
+        // Configure WebClient with MDC handling filter
+        return WebClient.builder()
                 .clientConnector(connector)
-                .filter(mdcContextFilter())  // Add the MDC filter to the WebClient
+                .filter(mdcContextFilter())  // Add the MDC filter to WebClient globally
                 .build();
-
-        // Example of making a WebClient request
-        MDC.put("traceId", "12345");
-
-        webClient.get()
-                .uri("https://example.com")
-                .retrieve()
-                .bodyToMono(String.class)
-                .subscribeOn(Schedulers.boundedElastic())
-                .doFinally(signalType -> MDC.clear())  // Clear MDC after request is done
-                .subscribe(response -> {
-                    System.out.println("Response: " + response);
-                });
-
-        // Ensure proper shutdown of Jetty HttpClient
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                httpClient.stop();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }));
     }
 
     /**
      * MDC context propagation filter for WebClient.
-     * Copies the current MDC context into the reactive pipeline for each WebClient request.
+     * This filter will ensure MDC context is propagated globally for all requests.
      */
-    private static ExchangeFilterFunction mdcContextFilter() {
+    private ExchangeFilterFunction mdcContextFilter() {
         return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
             // Capture the MDC context at the start of the request
             Map<String, String> contextMap = MDC.getCopyOfContextMap();
 
-            return Mono.just(ClientRequest.from(clientRequest)
-                    .build())
-                    .doOnEach(signal -> {
+            return Mono.just(clientRequest)
+                    .doOnEach(signal -> restoreMdcContext(contextMap, signal))
+                    .contextWrite(Context.of("mdcContext", contextMap));  // Store MDC in Reactor context
+        }).andThen((clientRequest, next) -> next.exchange(clientRequest)
+                .doOnEach(signal -> MDC.clear()));  // Clear MDC after the request is complete
+    }
+
+    /**
+     * Helper method to restore MDC context during reactive execution.
+     */
+    private void restoreMdcContext(Map<String, String> contextMap, Signal<?> signal) {
+        if (signal.isOnNext() || signal.isOnComplete() || signal.isOnError()) {
+            if (contextMap != null) {
+                // Restore MDC context from the captured map
+                MDC.setContextMap(contextMap);
+            }
+        }
+    }
+
+    /**
+     * Global hook to propagate the MDC context across reactive chains.
+     */
+    static {
+        Hooks.onEachOperator("MDC", (publisher, subscriber) -> 
+            Schedulers.fromExecutor(runnable -> {
+                // Wrap each execution with MDC context propagation
+                Map<String, String> contextMap = MDC.getCopyOfContextMap();
+                return () -> {
+                    try {
                         if (contextMap != null) {
-                            // Restore the MDC context in the reactive pipeline
                             MDC.setContextMap(contextMap);
                         }
-                    });
-        }).andThen((clientRequest, next) -> next.exchange(clientRequest)
-                .doFinally(signalType -> MDC.clear())  // Clear MDC after the request is done
+                        runnable.run();
+                    } finally {
+                        MDC.clear();
+                    }
+                };
+            }).schedule(subscriber::onComplete)
         );
     }
 }
