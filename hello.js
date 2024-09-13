@@ -1,36 +1,24 @@
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.slf4j.MDC;
 import reactor.core.publisher.Mono;
-import java.time.Duration;
-import java.time.Instant;
+import reactor.util.context.Context;
 
-public class WebClientLoggingFilter {
+import java.util.Map;
 
-    public static ExchangeFilterFunction logRequestTiming() {
-        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
-            Instant startTime = Instant.now();
-            return Mono.just(clientRequest)
-                .flatMap(request -> Mono.defer(() -> {
-                    // Pass the start time along with the request
-                    return Mono.just(request).contextWrite(Context.of(Instant.class, startTime));
-                }));
-        });
-    }
+public class ReactorContextMdc {
 
-    public static ExchangeFilterFunction logResponseTiming() {
-        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
-            return Mono.defer(() -> {
-                // Retrieve the start time from the context
-                Instant startTime = clientResponse
-                        .currentContext()
-                        .getOrDefault(Instant.class, Instant.now()); // Fallback to current time if not found
-                Instant endTime = Instant.now();
-                long timeTaken = Duration.between(startTime, endTime).toMillis();
-                System.out.println("Response received at: " + endTime);
-                System.out.println("Time taken: " + timeTaken + " ms");
-                return Mono.just(clientResponse);
-            });
-        });
+    public static <T> Mono<T> withMdc(Mono<T> publisher) {
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap(); // Copy MDC values
+        return publisher
+            .contextWrite(Context.of("mdc", mdcContext)) // Add MDC to Reactor's Context
+            .doOnEach(signal -> {
+                // Set MDC when the reactive chain is running
+                if (signal.isOnNext() || signal.isOnError()) {
+                    Map<String, String> contextMap = signal.getContextView().getOrDefault("mdc", Map.of());
+                    if (contextMap != null) {
+                        MDC.setContextMap(contextMap);
+                    }
+                }
+            })
+            .doFinally(signal -> MDC.clear()); // Clear MDC at the end of processing
     }
 }
