@@ -9,10 +9,13 @@ import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Signal;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.context.Context;
 
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class WebClientConfig {
@@ -64,24 +67,27 @@ public class WebClientConfig {
     }
 
     /**
-     * Global hook to propagate the MDC context across reactive chains.
+     * Custom scheduler that propagates the MDC context across threads.
      */
-    static {
-        Hooks.onEachOperator("MDC", (publisher, subscriber) -> 
-            Schedulers.fromExecutor(runnable -> {
-                // Wrap each execution with MDC context propagation
-                Map<String, String> contextMap = MDC.getCopyOfContextMap();
-                return () -> {
-                    try {
-                        if (contextMap != null) {
-                            MDC.setContextMap(contextMap);
-                        }
-                        runnable.run();
-                    } finally {
-                        MDC.clear();
+    @Bean
+    public Scheduler mdcScheduler() {
+        ExecutorService executorService = Executors.newFixedThreadPool(10);  // You can configure the size of the pool
+        return Schedulers.fromExecutor(executorService, task -> {
+            // Capture the current MDC context before scheduling the task
+            Map<String, String> contextMap = MDC.getCopyOfContextMap();
+
+            return () -> {
+                try {
+                    if (contextMap != null) {
+                        // Restore the MDC context in the task's thread
+                        MDC.setContextMap(contextMap);
                     }
-                };
-            }).schedule(subscriber::onComplete)
-        );
+                    task.run();
+                } finally {
+                    // Clear the MDC after task execution to avoid leaks
+                    MDC.clear();
+                }
+            };
+        });
     }
 }
