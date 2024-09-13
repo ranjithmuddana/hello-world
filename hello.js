@@ -1,24 +1,27 @@
-import org.slf4j.MDC;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-import reactor.util.context.Context;
 
-import java.util.Map;
+@Component
+public class WebClientConfig {
 
-public class ReactorContextMdc {
+    public WebClient webClient() {
+        return WebClient.builder()
+            .filter(addMdcToHeaders()) // Add MDC to headers for propagation
+            .build();
+    }
 
-    public static <T> Mono<T> withMdc(Mono<T> publisher) {
-        Map<String, String> mdcContext = MDC.getCopyOfContextMap(); // Copy MDC values
-        return publisher
-            .contextWrite(Context.of("mdc", mdcContext)) // Add MDC to Reactor's Context
-            .doOnEach(signal -> {
-                // Set MDC when the reactive chain is running
-                if (signal.isOnNext() || signal.isOnError()) {
-                    Map<String, String> contextMap = signal.getContextView().getOrDefault("mdc", Map.of());
-                    if (contextMap != null) {
-                        MDC.setContextMap(contextMap);
-                    }
+    private ExchangeFilterFunction addMdcToHeaders() {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            // Extract MDC values and add them to the headers
+            return ReactorContextMdc.withMdc(Mono.defer(() -> {
+                Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+                if (mdcContext != null && mdcContext.containsKey("correlationId")) {
+                    clientRequest.headers().add("X-Correlation-ID", mdcContext.get("correlationId"));
                 }
-            })
-            .doFinally(signal -> MDC.clear()); // Clear MDC at the end of processing
+                return Mono.just(clientRequest);
+            }));
+        });
     }
 }
