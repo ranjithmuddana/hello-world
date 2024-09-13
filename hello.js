@@ -1,34 +1,25 @@
-import org.springframework.web.reactive.function.client.ClientRequest;
+import org.apache.logging.log4j.ThreadContext;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import reactor.core.publisher.Mono;
+
 import java.time.Duration;
 import java.time.Instant;
 
-public class WebClientLoggingFilter {
+public class ResponseLoggingFilter {
 
-    public static ExchangeFilterFunction logRequestAndResponseTiming() {
-        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
-            Instant startTime = Instant.now(); // Capture start time
-            System.out.println("Request started at: " + startTime);
-
-            return Mono.just(clientRequest)
-                .doOnNext(request -> System.out.println("Request URI: " + request.url()))
-                .flatMap(req -> {
-                    // Pass the start time along with the request
-                    return Mono.deferContextual(context -> Mono.just(req)
-                        .contextWrite(ctx -> ctx.put("startTime", startTime)));
-                });
-        }).andThen((clientRequest, next) -> next.exchange(clientRequest)
-            .flatMap(clientResponse -> Mono.deferContextual(context -> {
-                Instant startTime = context.get("startTime");  // Retrieve start time from context
+    public static ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
+            String startTimeStr = ThreadContext.get("startTime"); // Retrieve startTime from ThreadContext
+            if (startTimeStr != null) {
+                Instant startTime = Instant.ofEpochMilli(Long.parseLong(startTimeStr));
                 Instant endTime = Instant.now();
                 long timeTaken = Duration.between(startTime, endTime).toMillis();
                 System.out.println("Response received at: " + endTime);
                 System.out.println("Time taken: " + timeTaken + " ms");
-
-                return Mono.just(clientResponse);
-            }))
-        );
+            }
+            ThreadContext.remove("startTime"); // Clean up after response
+            return Mono.just(clientResponse);
+        });
     }
 }
