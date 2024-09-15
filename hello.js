@@ -1,24 +1,22 @@
-import reactor.core.publisher.Hooks;
+import reactor.core.scheduler.Schedulers;
 import reactor.core.publisher.Mono;
-import reactor.util.context.Context;
 import org.slf4j.MDC;
 
-public class ReactorMdcHelper {
+public class SchedulerExample {
 
-    public static void initMdcHooks() {
-        Hooks.onEachOperator("mdc-propagation", (scannable, publisher) -> publisher
-            .deferContextual(ctx -> {
-                Map<String, String> mdcContext = MDC.getCopyOfContextMap();
-                return publisher.contextWrite(Context.of("mdc", mdcContext));
-            })
-            .doOnEach(signal -> {
-                if (signal.isOnNext() || signal.isOnError()) {
-                    Map<String, String> contextMap = signal.getContextView().getOrDefault("mdc", Map.of());
-                    if (contextMap != null) {
-                        MDC.setContextMap(contextMap);
-                    }
+    public Mono<String> processInScheduler() {
+        return Mono.deferContextual(ctx -> {
+            Map<String, String> mdcContext = ctx.getOrDefault("mdc", Map.of());
+            return Mono.fromCallable(() -> {
+                MDC.setContextMap(mdcContext);
+                try {
+                    // Task logic here
+                    String correlationId = MDC.get("correlationId");
+                    return "Processed in scheduler with correlation ID: " + correlationId;
+                } finally {
+                    MDC.clear();
                 }
-            })
-            .doFinally(signal -> MDC.clear()));
+            }).subscribeOn(Schedulers.boundedElastic());
+        });
     }
 }
