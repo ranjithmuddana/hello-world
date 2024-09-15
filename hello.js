@@ -7,9 +7,9 @@ public class ReactorMdcHelper {
 
     public static void initMdcHooks() {
         Hooks.onEachOperator("mdc-propagation", (scannable, publisher) -> publisher
-            .contextWrite(ctx -> {
+            .deferContextual(ctx -> {
                 Map<String, String> mdcContext = MDC.getCopyOfContextMap();
-                return ctx.put("mdc", mdcContext);
+                return publisher.contextWrite(Context.of("mdc", mdcContext));
             })
             .doOnEach(signal -> {
                 if (signal.isOnNext() || signal.isOnError()) {
