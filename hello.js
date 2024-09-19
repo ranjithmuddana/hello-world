@@ -1,30 +1,14 @@
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
-import reactor.core.publisher.Mono;
-import reactor.util.context.Context;
-
-public class WebClientFilter {
-
-    public static ExchangeFilterFunction addContextToRequest() {
-        return ExchangeFilterFunction.ofRequestProcessor(request -> 
-            Mono.deferContextual(context -> {
-                // Add value to context in RequestProcessor
-                Context updatedContext = context.put("traceId", "12345");
-                return Mono.just(ClientRequest.from(request).build())
-                           .contextWrite(updatedContext);
-            })
-        );
-    }
-
-    public static ExchangeFilterFunction readContextFromResponse() {
-        return ExchangeFilterFunction.ofResponseProcessor(response -> 
-            Mono.deferContextual(context -> {
-                // Read value from context in ResponseProcessor
-                String traceId = context.getOrDefault("traceId", "default-traceId");
-                System.out.println("Trace ID in response: " + traceId);
-                return Mono.just(response);
-            })
-        );
-    }
-}
+spring:
+  r2dbc:
+    url: r2dbc:pool:postgresql://localhost:5432/mydb
+    username: myuser
+    password: mypass
+    pool:
+      max-size: 20                          # Maximum number of connections in the pool
+      initial-size: 10                       # Number of connections created at startup
+      validation-query: SELECT 1             # Query to validate the connection
+      max-idle-time: 30s                     # Max idle time before a connection is closed
+      max-acquire-time: 5s                   # Maximum time to wait for acquiring a connection
+      max-create-connection-time: 5s         # Time limit for creating a new connection
+      acquire-retry: 3                       # Number of retries to acquire a connection
+      connection-timeout: 10s                # Maximum wait time for a connection (new or existing)
