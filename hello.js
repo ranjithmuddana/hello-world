@@ -8,15 +8,17 @@ public class ReactorContextPropagationConfig {
 
     @PostConstruct
     public void init() {
-        // Enable automatic context propagation on every scheduled task
+        // Enable context propagation across all scheduled tasks
         Schedulers.onScheduleHook("context-propagation", runnable -> {
             return () -> {
-                // Retrieve the context from the current thread
                 Context context = Context.of("traceId", "global-trace-id");
-                // Run the task with the reactor context
-                Hooks.onEachOperator(Operators.lift((scannable, subscriber) -> 
-                     subscriber.contextWrite(context)));
-                runnable.run();
+                // Propagate context across schedulers
+                try {
+                    Context.setThreadLocal(context);
+                    runnable.run();
+                } finally {
+                    Context.clearThreadLocal();
+                }
             };
         });
     }
