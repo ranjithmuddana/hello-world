@@ -1,60 +1,133 @@
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DefaultDataBufferFactory;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.reactive.ClientHttpRequest;
-import org.springframework.web.reactive.function.BodyInserter;
-import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
-import reactor.core.publisher.Mono;
-
+import java.sql.*;
+import java.net.http.*;
 import java.net.URI;
+import java.util.*;
+import org.json.*;
+import org.skyscreamer.jsonassert.JSONCompare;
+import org.skyscreamer.jsonassert.JSONCompareResult;
+import org.skyscreamer.jsonassert.JSONCompareMode;
+import org.skyscreamer.jsonassert.comparator.CustomComparator;
+import org.skyscreamer.jsonassert.comparator.JSONComparator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jayway.jsonpath.JsonPath;
 
-import static org.mockito.Mockito.*;
+public class ApiComparisonProgram {
+    private static final Set<String> IGNORED_PATHS = new HashSet<>(Arrays.asList(
+        "$.timestamp",
+        "$.metadata.requestId"
+        // Add more paths to ignore here
+    ));
 
-class LogRequestFilterTest {
+    private static final String DB_URL = "jdbc:postgresql://your_host:5432/your_database";
+    private static final String DB_USER = "your_username";
+    private static final String DB_PASSWORD = "your_password";
 
-    @Test
-    void testLogRequestWithBodyInserter() {
-        // Arrange
-        ClientRequest mockRequest = Mockito.mock(ClientRequest.class);
-        when(mockRequest.method()).thenReturn(HttpMethod.POST);
-        when(mockRequest.url()).thenReturn(URI.create("http://localhost"));
+    public static void main(String[] args) throws Exception {
+        createComparisonResultTable();
 
-        // Mocking a BodyInserter (for instance, with a String body)
-        BodyInserter<String, ClientHttpRequest> bodyInserter = BodyInserters.fromValue("Test Body");
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT id, request_data FROM requests")) {
 
-        // Mock ClientRequest to return the BodyInserter
-        when(mockRequest.body()).thenReturn(bodyInserter);
+            while (rs.next()) {
+                long requestId = rs.getLong("id");
+                String requestData = rs.getString("request_data");
+                processRequest(requestId, requestData, "https://api.env1.com", "https://api.env2.com");
+            }
+        }
+    }
 
-        // Mock the ClientHttpRequest (where BodyInserter will write the body)
-        ClientHttpRequest mockClientHttpRequest = Mockito.mock(ClientHttpRequest.class);
+    private static void createComparisonResultTable() throws SQLException {
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             Statement stmt = conn.createStatement()) {
+            String sql = "CREATE TABLE IF NOT EXISTS comparison_results (" +
+                         "id SERIAL PRIMARY KEY, " +
+                         "request_id BIGINT, " +
+                         "comparison_result BOOLEAN, " +
+                         "differences JSONB, " +
+                         "comparison_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+            stmt.execute(sql);
+        }
+    }
 
-        // Capture the DataBuffer written to the request
-        ArgumentCaptor<Mono<DataBuffer>> dataBufferCaptor = ArgumentCaptor.forClass(Mono.class);
-        when(mockClientHttpRequest.writeWith(dataBufferCaptor.capture())).thenReturn(Mono.empty());
+    private static void processRequest(long requestId, String requestData, String env1BaseUrl, String env2BaseUrl) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
 
-        // Mock the ExchangeFunction
-        ExchangeFilterFunction logRequestFilter = new LogRequestFilter().logRequest();
+        String env1Response = makeApiCall(client, env1BaseUrl, requestData);
+        String env2Response = makeApiCall(client, env2BaseUrl, requestData);
 
-        // Act
-        logRequestFilter.filter(mockRequest, next -> {
-            // Simulate the BodyInserter writing to the request
-            bodyInserter.insert(mockClientHttpRequest, null);
-            return Mono.just(ClientResponse.create(200).build());
-        }).block();
+        JSONComparator comparator = new CustomComparator(JSONCompareMode.LENIENT, 
+            (o1, o2) -> shouldIgnore(o1, o2) ? true : null);
 
-        // Assert: Verify that the body inserter wrote the body to the request
-        verify(mockClientHttpRequest).writeWith(any());
+        JSONCompareResult result = JSONCompare.compareJSON(env1Response, env2Response, comparator);
 
-        // Extract and verify the actual body content written to the request
-        Mono<DataBuffer> capturedBufferMono = dataBufferCaptor.getValue();
-        DataBuffer capturedBuffer = capturedBufferMono.block(); // Block to get the actual DataBuffer
-        String bodyContent = StandardCharsets.UTF_8.decode(capturedBuffer.asByteBuffer()).toString();
-        assertEquals("Test Body", bodyContent);
+        boolean passed = result.passed();
+        String differences = passed ? null : createDifferencesJson(result);
+
+        writeResultToDatabase(requestId, passed, differences);
+
+        if (passed) {
+            System.out.println("Everything is alright for request ID: " + requestId);
+        } else {
+            System.out.println("Differences found for request ID: " + requestId);
+        }
+    }
+
+    private static boolean shouldIgnore(Object o1, Object o2) {
+        if (o1 instanceof String && o2 instanceof String) {
+            for (String path : IGNORED_PATHS) {
+                try {
+                    if (JsonPath.parse(o1).read(path) != null || JsonPath.parse(o2).read(path) != null) {
+                        return true;
+                    }
+                } catch (Exception e) {
+                    // Path doesn't exist in this object, continue to next path
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String makeApiCall(HttpClient client, String baseUrl, String requestData) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/endpoint"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestData))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        return response.body();
+    }
+
+    private static String createDifferencesJson(JSONCompareResult result) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode rootNode = mapper.createObjectNode();
+
+        for (String field : result.getFieldFailures()) {
+            String[] parts = field.split(":");
+            String fieldName = parts[0].trim();
+            String expectedValue = parts[1].trim();
+            String actualValue = parts[2].trim();
+
+            ObjectNode fieldNode = mapper.createObjectNode();
+            fieldNode.put("left", expectedValue);
+            fieldNode.put("right", actualValue);
+
+            rootNode.set(fieldName, fieldNode);
+        }
+
+        return mapper.writeValueAsString(rootNode);
+    }
+
+    private static void writeResultToDatabase(long requestId, boolean passed, String differences) throws SQLException {
+        String sql = "INSERT INTO comparison_results (request_id, comparison_result, differences) VALUES (?, ?, ?::jsonb)";
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setLong(1, requestId);
+            pstmt.setBoolean(2, passed);
+            pstmt.setObject(3, differences, Types.OTHER);
+            pstmt.executeUpdate();
+        }
     }
 }
