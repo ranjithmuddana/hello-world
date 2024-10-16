@@ -1,19 +1,19 @@
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
 @Bean
-public HttpHandler actuatorHttpHandler(WebFluxEndpointHandlerMapping endpointHandlerMapping, Scheduler actuatorScheduler) {
-    return (request, response) -> {
-        return Mono.defer(() -> {
-            try {
-                // Get handler for the current actuator request
-                Object handler = endpointHandlerMapping.getHandler(request);
-                if (handler instanceof HttpHandler) {
-                    // Execute the request on a custom scheduler
-                    return ((HttpHandler) handler).handle(request, response)
-                        .subscribeOn(actuatorScheduler);
-                }
-                return Mono.empty();
-            } catch (Exception e) {
-                return Mono.error(e);
-            }
-        });
-    };
+public RouterFunction<ServerResponse> actuatorRoutes(Scheduler actuatorScheduler) {
+    return route(GET("/actuator/health"), request -> {
+        return Mono.fromCallable(() -> {
+            // Simulate health check logic
+            return "Health is OK";
+        }).subscribeOn(actuatorScheduler) // Offload to custom scheduler
+        .flatMap(response -> ServerResponse.ok().bodyValue(response));
+    });
 }
