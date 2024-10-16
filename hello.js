@@ -1,36 +1,76 @@
-Explaining technical issues like Istio pod restarts to a manager requires focusing on the impact to the business, the root cause, and what you’re doing to resolve the issue. Here’s how you can explain it clearly:
+import org.springframework.http.server.reactive.ReactorHttpHandlerAdapter;
+import org.springframework.web.server.adapter.WebHttpHandlerBuilder;
+import reactor.core.scheduler.Scheduler;
+import reactor.netty.http.server.HttpServer;
 
-Subject: Frequent Istio Pod Restarts – Root Cause and Action Plan
+public class CustomSchedulerReactorHttpHandlerAdapter extends ReactorHttpHandlerAdapter {
 
-Overview:
-We are experiencing frequent restarts of our Istio-managed pods, which handle internal and external HTTP traffic. This issue is affecting the availability and stability of our service, especially as we scale up to handle more requests (currently about 3,700 requests per minute).
+    private final Scheduler customScheduler;
 
-Root Cause:
-The restarts are triggered because the Istio sidecar (Envoy proxy), responsible for managing network traffic in and out of our pods, is becoming unresponsive. This happens when it fails to meet the Kubernetes liveness probe checks. The primary contributing factors are:
+    public CustomSchedulerReactorHttpHandlerAdapter(WebHttpHandlerBuilder.HttpHandler httpHandler, Scheduler customScheduler) {
+        super(httpHandler);
+        this.customScheduler = customScheduler;
+    }
 
-	1.	Thread Saturation: Each pod is configured with 4 threads that handle both incoming requests and outbound external HTTP calls. As we scale traffic, these threads can get overwhelmed, especially when external services respond slowly.
-	2.	Blocking External HTTP Calls: The same threads handling user requests are also used to make outbound calls to external services. When these external calls are slow or unresponsive, our threads get tied up, causing Istio’s liveness probe to fail due to inactivity.
-	3.	Pod Configuration Limits: Our current configuration of 4 threads per pod might be insufficient to handle the increased traffic and external dependencies, leading to performance degradation and frequent restarts.
+    @Override
+    public HttpServer apply(HttpServer httpServer) {
+        return httpServer.runOn(customScheduler);
+    }
+}
 
-Impact:
+import org.springframework.boot.web.embedded.netty.NettyReactiveWebServerFactory;
+import org.springframework.boot.web.server.WebServer;
+import org.springframework.http.server.reactive.HttpHandler;
+import org.springframework.web.server.adapter.WebHttpHandlerBuilder;
+import reactor.core.scheduler.Scheduler;
 
-	•	Increased Downtime: Pod restarts reduce service availability, resulting in higher response times and possibly failed requests for users during peak traffic times.
-	•	Service Instability: Frequent restarts disrupt normal operations, risking customer satisfaction and SLA compliance.
+public class CustomSchedulerNettyReactiveWebServerFactory extends NettyReactiveWebServerFactory {
 
-Current Actions:
-We are investigating and addressing the issue with the following steps:
+    private final Scheduler customScheduler;
 
-	1.	Analyzing Thread Behavior: We are reviewing the allocation of threads per pod to ensure we have enough capacity to handle the load, particularly the external HTTP calls.
-	2.	Switching to Asynchronous Calls: Where possible, we are moving from blocking (synchronous) to non-blocking (asynchronous) HTTP calls. This will prevent threads from getting stuck waiting for responses, significantly improving throughput.
-	3.	Scaling and Resource Allocation: We are testing increased pod and thread counts to handle higher traffic volumes and external call latency better.
-	4.	Monitoring and Alerts: We have enhanced monitoring on thread usage, request latency, and pod health to better predict and prevent future restarts.
+    public CustomSchedulerNettyReactiveWebServerFactory(Scheduler customScheduler) {
+        this.customScheduler = customScheduler;
+    }
 
-Next Steps:
+    @Override
+    public WebServer getWebServer(HttpHandler httpHandler) {
+        WebHttpHandlerBuilder.HttpHandler decorated = WebHttpHandlerBuilder.applicationContext(getApplicationContext())
+                .httpHandler(httpHandler)
+                .build();
 
-	•	We will continue to adjust the configuration and monitor the impact on pod stability over the next few days.
-	•	If needed, we will coordinate with our infrastructure team to further optimize our traffic handling and potentially revise Istio or Kubernetes resource limits.
+        CustomSchedulerReactorHttpHandlerAdapter adapter = new CustomSchedulerReactorHttpHandlerAdapter(decorated, customScheduler);
 
-Conclusion:
-We are actively working to mitigate the issue and prevent future downtime by optimizing our service’s ability to handle both internal traffic and external dependencies. These adjustments should improve service reliability, and we’ll keep you updated on our progress.
+        return super.getWebServer(adapter);
+    }
+}
 
-This explanation focuses on the problem, its impact, and your action plan in a way that a manager can understand without needing too much technical detail.
+import org.springframework.boot.actuate.autoconfigure.web.server.ManagementServerProperties;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.boot.web.embedded.netty.NettyReactiveWebServerFactory;
+import org.springframework.boot.web.reactive.server.ReactiveWebServerFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import reactor.core.scheduler.Scheduler;
+
+@Configuration
+public class ActuatorServerConfig {
+
+    @Bean
+    public ReactiveWebServerFactory actuatorServerFactory(
+            Scheduler customActuatorScheduler,
+            ServerProperties serverProperties,
+            ManagementServerProperties managementServerProperties) {
+        
+        NettyReactiveWebServerFactory factory = new CustomSchedulerNettyReactiveWebServerFactory(customActuatorScheduler);
+        
+        Integer port = managementServerProperties.getPort() != null 
+            ? managementServerProperties.getPort() 
+            : serverProperties.getPort();
+        
+        factory.setPort(port != null ? port : 8080);
+        return factory;
+    }
+}
+
+
+
