@@ -1,39 +1,18 @@
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types._
-
-// Initialize Spark session
-val spark = SparkSession.builder
-  .appName("Segment Extraction SQL")
-  .getOrCreate()
-
-// Sample layout data
-val layoutData = Seq(
-  (30, "v_A", 3, 0),
-  (30, "v_b", 2, 100),
-  (20, "v_A4", 3, 150),
-  (20, "v_B4", 3, 180),
-  (2, "v_A4", 3, 200)
-).toDF("Segment", "Name", "Length", "Start")
-
-// Sample data file
-val dataFile = Seq(
-  (12, "30", "30Data"),
-  (20, "30", "30Data"),
-  (340, "30", "30Data")
-).toDF("ID", "SEGMENTS", "REMAINING_Data")
-
-// Create temporary views
-layoutData.createOrReplaceTempView("layout")
-dataFile.createOrReplaceTempView("dataFile")
-
-// SQL query to explode SEGMENTS, join with layout, and extract data based on start and length
-val query = """
-WITH exploded_data AS (
-  SELECT ID, REMAINING_Data, CAST(segment AS INT) AS Segment
+WITH cleaned_data AS (
+  SELECT ID, REMAINING_Data,
+         -- Filter out null, empty, and non-numeric segments
+         split(regexp_replace(coalesce(SEGMENTS, ''), '[^0-9,]', ''), ',') AS segments_array
   FROM dataFile
-  LATERAL VIEW explode(split(SEGMENTS, ',')) AS segment
+),
+exploded_data AS (
+  -- Explode the segments array to handle each segment separately
+  SELECT ID, REMAINING_Data, CAST(segment AS INT) AS Segment
+  FROM cleaned_data
+  LATERAL VIEW explode(segments_array) AS segment
+  WHERE segment != ''  -- Exclude any empty segments
 ),
 matched_data AS (
+  -- Join with layout data based on valid segments
   SELECT d.ID, l.Name,
          CASE
            WHEN l.Start IS NOT NULL AND l.Length IS NOT NULL THEN
@@ -50,8 +29,3 @@ SELECT ID,
        MAX(CASE WHEN Name = 'v_B4' THEN Extracted_Data ELSE '' END) AS v_B4
 FROM matched_data
 GROUP BY ID
-"""
-
-// Execute query and show result
-val result = spark.sql(query)
-result.show(truncate = false)
