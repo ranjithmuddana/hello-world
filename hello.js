@@ -9,6 +9,7 @@ import spark.implicits._
 val file1Path = "file1.txt"
 val file2Path = "file2.txt"
 val layoutPath = "layout.txt"
+val responseSegmentsPath = "response_segments.txt"
 val outputPath = "output.txt"
 
 // Schema for layout configuration
@@ -50,13 +51,26 @@ val file2DF = spark.read
   .csv(file2Path)
   .withColumn("Segments", split($"Segments", ","))
 
+// Read response segments data (id, response segments array)
+val responseSegmentsDF = spark.read
+  .option("delimiter", "\t")
+  .option("header", "false")
+  .schema(StructType(Seq(
+    StructField("ID", StringType, nullable = false),
+    StructField("response_segments", ArrayType(StringType), nullable = true)
+  )))
+  .csv(responseSegmentsPath)
+
 // Join file1 and file2 on ID
 val joinedDF = file2DF.join(file1DF, Seq("ID"), "left")
   .withColumn("should_blank", $"HitFlag" =!= lit("1"))
   .withColumn("Age", when($"Age" =!= $"file2.Age", "").otherwise($"Age"))
 
-// Process layout
-val layoutWithValuesDF = layoutDF.crossJoin(joinedDF)
+// Join joinedDF with responseSegmentsDF to get response_segments
+val enrichedDF = joinedDF.join(responseSegmentsDF, Seq("ID"), "left")
+
+// Process layout with blanking based on response segments
+val layoutWithValuesDF = layoutDF.crossJoin(enrichedDF)
   .withColumn("Value", expr(
     """case 
          when field_name = 'ID' then ID
@@ -65,7 +79,12 @@ val layoutWithValuesDF = layoutDF.crossJoin(joinedDF)
          when field_name = 'Position' then Position
        end"""
   ))
-  .withColumn("Value", expr("substring(Value, 0, length)"))
+  .withColumn("Value", 
+    when(
+      array_contains($"response_segments", $"segment") && $"should_blank", 
+      ""
+    ).otherwise(expr("substring(Value, 0, length)"))
+  )
 
 // Create final output format and write to file
 val finalOutput = layoutWithValuesDF
@@ -78,8 +97,8 @@ finalOutput.select("FormattedLine")
   .text(outputPath)
 
 // Output counts
-val totalRecords = joinedDF.count()
-val totalHits = joinedDF.filter($"HitFlag" === "1").count()
+val totalRecords = enrichedDF.count()
+val totalHits = enrichedDF.filter($"HitFlag" === "1").count()
 val totalNoHits = totalRecords - totalHits
 
 println(s"Data successfully joined and written to $outputPath based on layout, segments, and hit flag")
