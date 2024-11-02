@@ -1,109 +1,57 @@
-import org.apache.spark.sql.{SparkSession, DataFrame}
-import org.apache.spark.sql.functions._
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types._
 
-val spark = SparkSession.builder().appName("File Join and Layout Processing").getOrCreate()
-import spark.implicits._
+// Initialize Spark session
+val spark = SparkSession.builder
+  .appName("Segment Extraction SQL")
+  .getOrCreate()
 
-// Define file paths
-val file1Path = "file1.txt"
-val file2Path = "file2.txt"
-val layoutPath = "layout.txt"
-val responseSegmentsPath = "response_segments.txt"
-val outputPath = "output.txt"
+// Sample layout data
+val layoutData = Seq(
+  (30, "v_A", 3, 0),
+  (30, "v_b", 2, 100),
+  (20, "v_A4", 3, 150),
+  (20, "v_B4", 3, 180),
+  (2, "v_A4", 3, 200)
+).toDF("Segment", "Name", "Length", "Start")
 
-// Schema for layout configuration
-val layoutSchema = StructType(List(
-  StructField("segment", StringType, nullable = true),
-  StructField("field_name", StringType, nullable = true),
-  StructField("position", IntegerType, nullable = true),
-  StructField("length", IntegerType, nullable = true)
-))
+// Sample data file
+val dataFile = Seq(
+  (12, "30", "30Data"),
+  (20, "30", "30Data"),
+  (340, "30", "30Data")
+).toDF("ID", "SEGMENTS", "REMAINING_Data")
 
-// Read layout configuration
-val layoutDF = spark.read
-  .option("delimiter", ",")
-  .schema(layoutSchema)
-  .csv(layoutPath)
+// Create temporary views
+layoutData.createOrReplaceTempView("layout")
+dataFile.createOrReplaceTempView("dataFile")
 
-// Read file1 data (id, name, age)
-val file1DF = spark.read
-  .option("delimiter", "\t")
-  .option("header", "false")
-  .schema(StructType(Seq(
-    StructField("ID", StringType, nullable = false),
-    StructField("Name", StringType, nullable = true),
-    StructField("Age", StringType, nullable = true)
-  )))
-  .csv(file1Path)
+// SQL query to explode SEGMENTS, join with layout, and extract data based on start and length
+val query = """
+WITH exploded_data AS (
+  SELECT ID, REMAINING_Data, CAST(segment AS INT) AS Segment
+  FROM dataFile
+  LATERAL VIEW explode(split(SEGMENTS, ',')) AS segment
+),
+matched_data AS (
+  SELECT d.ID, l.Name,
+         CASE
+           WHEN l.Start IS NOT NULL AND l.Length IS NOT NULL THEN
+             SUBSTRING(d.REMAINING_Data, l.Start + 1, l.Length)
+           ELSE ''
+         END AS Extracted_Data
+  FROM exploded_data d
+  LEFT JOIN layout l ON d.Segment = l.Segment
+)
+SELECT ID,
+       MAX(CASE WHEN Name = 'v_A' THEN Extracted_Data ELSE '' END) AS v_A,
+       MAX(CASE WHEN Name = 'v_b' THEN Extracted_Data ELSE '' END) AS v_b,
+       MAX(CASE WHEN Name = 'v_A4' THEN Extracted_Data ELSE '' END) AS v_A4,
+       MAX(CASE WHEN Name = 'v_B4' THEN Extracted_Data ELSE '' END) AS v_B4
+FROM matched_data
+GROUP BY ID
+"""
 
-// Read file2 data (id, age, position, hit_flag, and segments as array)
-val file2DF = spark.read
-  .option("delimiter", "\t")
-  .option("header", "false")
-  .schema(StructType(Seq(
-    StructField("ID", StringType, nullable = false),
-    StructField("Age", StringType, nullable = true),
-    StructField("Position", StringType, nullable = true),
-    StructField("HitFlag", StringType, nullable = true),
-    StructField("Segments", StringType, nullable = true)
-  )))
-  .csv(file2Path)
-  .withColumn("Segments", split($"Segments", ","))
-
-// Read response segments data (id, response segments array)
-val responseSegmentsDF = spark.read
-  .option("delimiter", "\t")
-  .option("header", "false")
-  .schema(StructType(Seq(
-    StructField("ID", StringType, nullable = false),
-    StructField("response_segments", ArrayType(StringType), nullable = true)
-  )))
-  .csv(responseSegmentsPath)
-
-// Join file1 and file2 on ID
-val joinedDF = file2DF.join(file1DF, Seq("ID"), "left")
-  .withColumn("should_blank", $"HitFlag" =!= lit("1"))
-  .withColumn("Age", when($"Age" =!= $"file2.Age", "").otherwise($"Age"))
-
-// Join joinedDF with responseSegmentsDF to get response_segments
-val enrichedDF = joinedDF.join(responseSegmentsDF, Seq("ID"), "left")
-
-// Process layout with blanking based on response segments
-val layoutWithValuesDF = layoutDF.crossJoin(enrichedDF)
-  .withColumn("Value", expr(
-    """case 
-         when field_name = 'ID' then ID
-         when field_name = 'Name' then Name
-         when field_name = 'Age' then Age
-         when field_name = 'Position' then Position
-       end"""
-  ))
-  .withColumn("Value", 
-    when(
-      array_contains($"response_segments", $"segment") && $"should_blank", 
-      ""
-    ).otherwise(expr("substring(Value, 0, length)"))
-  )
-
-// Create final output format and write to file
-val finalOutput = layoutWithValuesDF
-  .groupBy("ID")
-  .agg(concat_ws("", collect_list("Value")) as "FormattedLine")
-
-finalOutput.select("FormattedLine")
-  .coalesce(1)
-  .write
-  .text(outputPath)
-
-// Output counts
-val totalRecords = enrichedDF.count()
-val totalHits = enrichedDF.filter($"HitFlag" === "1").count()
-val totalNoHits = totalRecords - totalHits
-
-println(s"Data successfully joined and written to $outputPath based on layout, segments, and hit flag")
-println(s"Total records output: $totalRecords")
-println(s"Total hits: $totalHits")
-println(s"Total no hits: $totalNoHits")
-
-spark.stop()
+// Execute query and show result
+val result = spark.sql(query)
+result.show(truncate = false)
