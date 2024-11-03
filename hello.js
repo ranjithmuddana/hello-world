@@ -1,71 +1,48 @@
-import org.apache.spark.sql.{SparkSession, Row}
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.{SparkSession, Encoders}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.Row
 
-// Initialize Spark Session
-val spark = SparkSession.builder
-  .appName("ParseTextFile")
-  .master("local[*]")
-  .getOrCreate()
+object SerialNumberExample {
+  def main(args: Array[String]): Unit = {
+    // Initialize Spark session
+    val spark = SparkSession.builder()
+      .appName("Serial Number Example")
+      .master("local[*]") // Use appropriate master for your cluster
+      .getOrCreate()
 
-// Define schema for the DataFrame
-val schema = StructType(Array(
-  StructField("FIELD", StringType, nullable = true),
-  StructField("FORMAT", StringType, nullable = true),
-  StructField("LENGTH", StringType, nullable = true),
-  StructField("START", StringType, nullable = true),
-  StructField("END", StringType, nullable = true),
-  StructField("SEGMENT", StringType, nullable = true),
-  StructField("ERROR", StringType, nullable = true)
-))
+    import spark.implicits._
 
-// Load the file as RDD
-val lines = spark.sparkContext.textFile("path/to/your/file.txt")
+    // Sample DataFrame
+    val data = Seq(
+      (1, "Alice"),
+      (2, "Bob"),
+      (3, "Charlie"),
+      (4, "David"),
+      (5, "Eve")
+    )
 
-// Define the set of known properties to identify fields
-val propertyKeys = Set("FORMAT", "LENGTH", "START", "END", "SEGMENT", "ERROR")
+    val df = spark.createDataFrame(data).toDF("id", "name")
 
-// Aggregate to process each line and group fields together
-val fieldsRdd = lines
-  .filter(_.nonEmpty) // Remove empty lines
-  .map(_.trim)        // Trim spaces
-  .aggregate((List.empty[Row], Map.empty[String, String]))(
-    // Sequential operation (process each line within a partition)
-    (acc, line) => {
-      val (rows, currentField) = acc
-      val parts = line.split(":", 2).map(_.trim)
+    // Show original DataFrame
+    println("Original DataFrame:")
+    df.show()
 
-      if (parts.length == 2 && propertyKeys.contains(parts(0))) {
-        // Line is a property, add to current field map
-        (rows, currentField + (parts(0) -> parts(1)))
-      } else {
-        // Line is a new field name, finalize the current field if it exists
-        val updatedRows = if (currentField.nonEmpty) rows :+ Row(
-          currentField.getOrElse("FIELD", ""),
-          currentField.getOrElse("FORMAT", ""),
-          currentField.getOrElse("LENGTH", ""),
-          currentField.getOrElse("START", ""),
-          currentField.getOrElse("END", ""),
-          currentField.getOrElse("SEGMENT", ""),
-          currentField.getOrElse("ERROR", "")
-        ) else rows
-        // Start new field with current line as the field name
-        (updatedRows, Map("FIELD" -> line))
-      }
-    },
-    // Combine operation (merge results across partitions)
-    (acc1, acc2) => {
-      val (rows1, field1) = acc1
-      val (rows2, field2) = acc2
-
-      // Combine rows and keep any last uncompleted field
-      val combinedRows = rows1 ++ rows2
-      val combinedField = if (field1.isEmpty) field2 else field1
-      (combinedRows, combinedField)
+    // Add a serial number using zipWithIndex
+    val dfWithSerialNumber = df.rdd.zipWithIndex().map { case (row, index) =>
+      Row.fromSeq(row.toSeq :+ (index + 1)) // Adding 1 to index to start from 1
     }
-  )._1
 
-// Convert to DataFrame
-val df = spark.createDataFrame(spark.sparkContext.parallelize(fieldsRdd), schema)
+    // Define the schema for the new DataFrame
+    val schema = StructType(df.schema.fields :+ StructField("serial_number", IntegerType))
 
-// Show the resulting DataFrame
-df.show(truncate = false)
+    // Create a new DataFrame with the updated rows and schema
+    val newDf = spark.createDataFrame(dfWithSerialNumber, schema)
+
+    // Show the DataFrame with serial numbers
+    println("DataFrame with Serial Number:")
+    newDf.show()
+
+    // Stop the Spark session
+    spark.stop()
+  }
+}
