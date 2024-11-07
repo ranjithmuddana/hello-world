@@ -1,35 +1,62 @@
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.XML;
 
-import java.util.ArrayList;
-import java.util.List;
+public class JsonToXmlConverter {
 
-public class Main {
-    public static void main(String[] args) {
+    public static String convertJsonToXml(String jsonString) {
         try {
-            // Create sample data
-            Customers customers = new Customers();
-            customers.setName("John Doe");
-            List<Address> addressList = new ArrayList<>();
-            addressList.add(new Address("123 Main St", "Springfield"));
-            addressList.add(new Address("456 Elm St", "Shelbyville"));
-            customers.setAddresses(addressList);
-
-            // Step 1: Convert Customers object to JSON string
-            ObjectMapper objectMapper = new ObjectMapper();
-            String jsonString = objectMapper.writeValueAsString(customers);
-            System.out.println("JSON String:\n" + jsonString);
-
-            // Step 2: Convert JSON string to JSONObject
+            // Create JSONObject from the JSON string
             JSONObject jsonObject = new JSONObject(jsonString);
-
-            // Step 3: Convert JSONObject to XML string
-            String xmlString = XML.toString(jsonObject, "header");
-            System.out.println("XML String:\n" + xmlString);
             
+            // Recursively process the JSONObject and JSONArray to handle empty arrays and other structures
+            processJson(jsonObject);
+            
+            // Convert the final JSON object to XML string
+            return XML.toString(jsonObject, "root");  // "root" can be adjusted based on your needs
         } catch (Exception e) {
             e.printStackTrace();
+            return null;
         }
+    }
+
+    // Recursively process the JSONObject to handle empty arrays and other structures
+    private static void processJson(JSONObject jsonObject) {
+        // Iterate over all keys in the JSONObject
+        for (String key : jsonObject.keySet()) {
+            Object value = jsonObject.get(key);
+
+            if (value instanceof JSONObject) {
+                // Recursively process nested JSONObjects
+                processJson((JSONObject) value);
+            } else if (value instanceof JSONArray) {
+                // Handle JSONArray
+                JSONArray jsonArray = (JSONArray) value;
+
+                // If the array is empty, we can either remove it or keep it as is (based on your needs)
+                if (jsonArray.isEmpty()) {
+                    jsonObject.put(key, new JSONObject()); // or jsonObject.put(key, "");
+                } else {
+                    // If it's not empty, recursively process any nested JSONObjects within the array
+                    for (int i = 0; i < jsonArray.length(); i++) {
+                        Object element = jsonArray.get(i);
+                        if (element instanceof JSONObject) {
+                            processJson((JSONObject) element);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        // Sample JSON string with an empty array and dynamic structure
+        String jsonString = "{\"parent\":{\"child\":[], \"name\":\"John\"}}";
+
+        // Convert JSON to XML
+        String xmlString = convertJsonToXml(jsonString);
+
+        // Print the result
+        System.out.println("Converted XML:\n" + xmlString);
     }
 }
