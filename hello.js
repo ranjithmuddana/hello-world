@@ -20,24 +20,17 @@ for item in layout:
         segments[segment] = []
     segments[segment].append(item)
 
-# Step 3: Use Jinja template for CTE generation and query building
+# Step 3: Use Jinja template for CTE generation and query building without `GROUP BY ID`
 template = Template("""
 {% for segment, fields in segments.items() %}
 segment_{{ segment }} AS (
     SELECT ID,
            {% for field in fields %}
-           MAX(CASE WHEN Segment = '{{ segment }}' THEN SUBSTRING(REMAINING_Data, {{ field['Start'] + 1 }}, {{ field['Length'] }}) ELSE '' END) AS {{ field['Name'] }}
+           MAX(CASE WHEN array_contains(split(SEGMENTS, ','), '{{ segment }}') THEN SUBSTRING(REMAINING_Data, {{ field['Start'] + 1 }}, {{ field['Length'] }}) ELSE '' END) AS {{ field['Name'] }}
            {% if not loop.last %}, {% endif %}
            {% endfor %}
-    FROM (
-        SELECT ID, REMAINING_Data,
-               CASE WHEN SEGMENTS IS NULL THEN NULL
-                    ELSE explode(split(SEGMENTS, ','))
-               END AS Segment
-        FROM dataFile
-    ) AS exploded_data
-    WHERE Segment = '{{ segment }}'
-    GROUP BY ID
+    FROM dataFile
+    WHERE array_contains(split(SEGMENTS, ','), '{{ segment }}')
 ){% if not loop.last %}, {% endif %}
 {% endfor %}
 
