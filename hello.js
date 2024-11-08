@@ -1,62 +1,70 @@
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.json.XML;
+import csv
+from jinja2 import Template
 
-public class JsonToXmlConverter {
+# Step 1: Load layout data from CSV file
+layout = []
+with open("layout.csv", mode="r") as csvfile:
+    reader = csv.DictReader(csvfile)
+    for row in reader:
+        # Convert each field to the appropriate type (Segment, Length, and Start are integers)
+        row['Segment'] = int(row['Segment'])
+        row['Length'] = int(row['Length'])
+        row['Start'] = int(row['Start'])
+        layout.append(row)
 
-    public static String convertJsonToXml(String jsonString) {
-        try {
-            // Create JSONObject from the JSON string
-            JSONObject jsonObject = new JSONObject(jsonString);
-            
-            // Recursively process the JSONObject and JSONArray to handle empty arrays and other structures
-            processJson(jsonObject);
-            
-            // Convert the final JSON object to XML string
-            return XML.toString(jsonObject, "root");  // "root" can be adjusted based on your needs
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
+# Step 2: Organize layout data by segments
+segments = {}
+for item in layout:
+    segment = item["Segment"]
+    if segment not in segments:
+        segments[segment] = []
+    segments[segment].append(item)
 
-    // Recursively process the JSONObject to handle empty arrays and other structures
-    private static void processJson(JSONObject jsonObject) {
-        // Iterate over all keys in the JSONObject
-        for (String key : jsonObject.keySet()) {
-            Object value = jsonObject.get(key);
+# Step 3: Use Jinja template for CTE generation and query building
+template = Template("""
+{% for segment, fields in segments.items() %}
+segment_{{ segment }} AS (
+    SELECT ID,
+           {% for field in fields %}
+           MAX(CASE WHEN Segment = '{{ segment }}' THEN SUBSTRING(REMAINING_Data, {{ field['Start'] + 1 }}, {{ field['Length'] }}) ELSE '' END) AS {{ field['Name'] }}
+           {% if not loop.last %}, {% endif %}
+           {% endfor %}
+    FROM (
+        SELECT ID, REMAINING_Data,
+               CASE WHEN SEGMENTS IS NULL THEN NULL
+                    ELSE explode(split(SEGMENTS, ','))
+               END AS Segment
+        FROM dataFile
+    ) AS exploded_data
+    WHERE Segment = '{{ segment }}'
+    GROUP BY ID
+){% if not loop.last %}, {% endif %}
+{% endfor %}
 
-            if (value instanceof JSONObject) {
-                // Recursively process nested JSONObjects
-                processJson((JSONObject) value);
-            } else if (value instanceof JSONArray) {
-                // Handle JSONArray
-                JSONArray jsonArray = (JSONArray) value;
+SELECT COALESCE({{ segment_ids | join(', ') }}) AS ID,
+       {% for field in all_fields %}
+       COALESCE({{ field | join(', ') }}) AS {{ field }}
+       {% if not loop.last %}, {% endif %}
+       {% endfor %}
+FROM {{ segment_ids | join(' FULL OUTER JOIN ') }}
+ON {{ join_conditions | join(' = ') }}
+""")
 
-                // If the array is empty, we can either remove it or keep it as is (based on your needs)
-                if (jsonArray.isEmpty()) {
-                    jsonObject.put(key, new JSONObject()); // or jsonObject.put(key, "");
-                } else {
-                    // If it's not empty, recursively process any nested JSONObjects within the array
-                    for (int i = 0; i < jsonArray.length(); i++) {
-                        Object element = jsonArray.get(i);
-                        if (element instanceof JSONObject) {
-                            processJson((JSONObject) element);
-                        }
-                    }
-                }
-            }
-        }
-    }
+# Step 4: Define fields and join conditions for final select
+all_fields = sorted(set(item["Name"] for item in layout))
+segment_ids = [f"segment_{segment}.ID" for segment in segments]
+field_joins = {field: [f"segment_{segment}.{field}" for segment in segments if any(f["Name"] == field for f in segments[segment])] for field in all_fields}
 
-    public static void main(String[] args) {
-        // Sample JSON string with an empty array and dynamic structure
-        String jsonString = "{\"parent\":{\"child\":[], \"name\":\"John\"}}";
+# Render the query using the Jinja template
+query = template.render(
+    segments=segments,
+    segment_ids=segment_ids,
+    all_fields=[field_joins[field] for field in all_fields]
+)
 
-        // Convert JSON to XML
-        String xmlString = convertJsonToXml(jsonString);
+# Save the generated query to a text file
+with open("generated_query.sql", "w") as f:
+    f.write(query)
 
-        // Print the result
-        System.out.println("Converted XML:\n" + xmlString);
-    }
-}
+print("Generated SQL Query:")
+print(query)
