@@ -20,7 +20,7 @@ for item in layout:
         segments[segment] = []
     segments[segment].append(item)
 
-# Step 3: Use Jinja template for CTE generation and query building without `GROUP BY ID`
+# Step 3: Use Jinja template for CTE generation and query building without hardcoding segment numbers
 template = Template("""
 {% for segment, fields in segments.items() %}
 segment_{{ segment }} AS (
@@ -39,8 +39,14 @@ SELECT COALESCE({{ segment_ids | join(', ') }}) AS ID,
        COALESCE({{ field | join(', ') }}) AS {{ field }}
        {% if not loop.last %}, {% endif %}
        {% endfor %}
-FROM {{ segment_ids | join(' FULL OUTER JOIN ') }}
-ON {{ join_conditions | join(' = ') }}
+FROM 
+{% for segment in segments %}
+    segment_{{ segment }}{% if not loop.last %} FULL OUTER JOIN {% else %} {% endif %}
+{% endfor %}
+ON 
+{% for segment in segments %}
+    segment_{{ segment }}.ID = {% if loop.index != 1 %}segment_{{ loop.index - 1 }}.ID{% endif %}{% if not loop.last %} AND {% endif %}
+{% endfor %}
 """)
 
 # Step 4: Define fields and join conditions for final select
