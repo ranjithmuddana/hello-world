@@ -1,69 +1,20 @@
-import csv
-from jinja2 import Template
+When describing the error handling in the controller advice to a manager, it’s best to explain it in terms of its purpose, benefits, and how it improves the application. Here’s a simple, high-level explanation:
 
-# Step 1: Load layout data from CSV file
-layout = []
-with open("layout.csv", mode="r") as csvfile:
-    reader = csv.DictReader(csvfile)
-    for row in reader:
-        # Convert each field to the appropriate type (Segment, Length, and Start are integers)
-        row['Segment'] = int(row['Segment'])
-        row['Length'] = int(row['Length'])
-        row['Start'] = int(row['Start'])
-        layout.append(row)
+Error Handling in Controller Advice:
 
-# Step 2: Organize layout data by segments
-segments = {}
-for item in layout:
-    segment = item["Segment"]
-    if segment not in segments:
-        segments[segment] = []
-    segments[segment].append(item)
+	1.	Purpose:
+	•	Controller advice is a centralized mechanism for managing errors and exceptions across the entire application. It ensures consistency in how errors are handled and presented to the user or client systems.
+	2.	How It Works:
+	•	It intercepts errors or exceptions thrown during the execution of controllers and processes them to return meaningful responses.
+	•	For example, if an input is invalid, instead of a technical stack trace, the system provides a clear message like “Invalid input: Name cannot be empty.”
+	3.	Key Benefits:
+	•	Improved User Experience: Users receive clear and actionable error messages instead of confusing system-generated errors.
+	•	Consistency: All controllers return errors in a standardized format, making it easier for frontend or client systems to handle them.
+	•	Security: Prevents sensitive technical details from being exposed in error messages.
+	•	Maintainability: Centralizing error handling means developers only need to update one place if the error-handling behavior needs to change.
+	4.	Example in Practice:
+	•	If a user tries to fetch a resource that doesn’t exist, the controller advice will catch the exception (e.g., ResourceNotFoundException) and return a 404 Not Found response with a message like, “The requested resource does not exist.”
+	5.	Impact on the System:
+	•	By using controller advice, the application remains robust, user-friendly, and easy to maintain, especially as it grows and handles more complex scenarios.
 
-# Step 3: Use Jinja template for CTE generation and query building without hardcoding segment numbers
-template = Template("""
-{% for segment, fields in segments.items() %}
-segment_{{ segment }} AS (
-    SELECT ID,
-           {% for field in fields %}
-           MAX(CASE WHEN array_contains(split(SEGMENTS, ','), '{{ segment }}') THEN SUBSTRING(REMAINING_Data, {{ field['Start'] + 1 }}, {{ field['Length'] }}) ELSE '' END) AS {{ field['Name'] }}
-           {% if not loop.last %}, {% endif %}
-           {% endfor %}
-    FROM dataFile
-    WHERE array_contains(split(SEGMENTS, ','), '{{ segment }}')
-){% if not loop.last %}, {% endif %}
-{% endfor %}
-
-SELECT COALESCE({{ segment_ids | join(', ') }}) AS ID,
-       {% for field in all_fields %}
-       COALESCE({{ field | join(', ') }}) AS {{ field }}
-       {% if not loop.last %}, {% endif %}
-       {% endfor %}
-FROM 
-{% for segment in segments %}
-    segment_{{ segment }}{% if not loop.last %} FULL OUTER JOIN {% else %} {% endif %}
-{% endfor %}
-ON 
-{% for segment in segments %}
-    segment_{{ segment }}.ID = {% if loop.index != 1 %}segment_{{ loop.index - 1 }}.ID{% endif %}{% if not loop.last %} AND {% endif %}
-{% endfor %}
-""")
-
-# Step 4: Define fields and join conditions for final select
-all_fields = sorted(set(item["Name"] for item in layout))
-segment_ids = [f"segment_{segment}.ID" for segment in segments]
-field_joins = {field: [f"segment_{segment}.{field}" for segment in segments if any(f["Name"] == field for f in segments[segment])] for field in all_fields}
-
-# Render the query using the Jinja template
-query = template.render(
-    segments=segments,
-    segment_ids=segment_ids,
-    all_fields=[field_joins[field] for field in all_fields]
-)
-
-# Save the generated query to a text file
-with open("generated_query.sql", "w") as f:
-    f.write(query)
-
-print("Generated SQL Query:")
-print(query)
+This explanation frames error handling in a way that highlights its importance and value to the system without delving into technical implementation details.
