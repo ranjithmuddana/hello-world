@@ -1,20 +1,28 @@
-Here’s the updated explanation with the revised failure count:
+from collections import defaultdict
 
-Summary of Load Testing Improvements
-Our recent load testing demonstrates significant performance and stability improvements in the system:
+# Input data
+data = [
+    (1, "abc"),
+    (2, "abd"),
+    (1, "xyz"),
+    (1, "dfg"),
+    (2, "cfd"),
+]
 
-	1.	Throughput:
-	•	Increased from 80 requests/min to 168 requests/min.
-	•	This reflects a 110% improvement in system capacity.
-	2.	Container Restarts:
-	•	Reduced from 21 to 2 during the test.
-	•	Indicates enhanced system stability and better resource utilization.
-	3.	Average Response Time:
-	•	Improved from 2 minutes 24 seconds to 45 seconds.
-	•	Represents a 68% reduction in latency, leading to a much faster user experience.
-	4.	Failure Rate:
-	•	Reduced from 35 failures/min to 0.56 failures/min.
-	•	This marks a 98.4% decrease, highlighting significantly improved reliability.
+# Dictionary to store grouped fields
+result = defaultdict(list)
 
-Conclusion:
-The optimizations made (e.g., code improvements, configuration tuning, or infrastructure upgrades) have greatly enhanced the system’s performance, stability, and reliability under high load conditions. These changes should lead to better user satisfaction and operational efficiency.
+# Track the current group index for each segment
+group_index = defaultdict(int)
+
+# Process the data
+for segment, field in data:
+    key = f"{segment}_{group_index[segment]}"
+    result[key].append(field)
+    # Increment the group index when a new segment appears
+    if len(result[key]) > 1:
+        group_index[segment] += 1
+
+# Convert defaultdict to a standard dictionary for the final output
+final_result = dict(result)
+print(final_result)
