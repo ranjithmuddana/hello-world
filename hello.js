@@ -9,20 +9,21 @@ data = [
     (2, "cfd"),
 ]
 
-# Dictionary to store grouped fields
+# Dictionary to store the result
 result = defaultdict(list)
 
-# Track the current group index for each segment
+# Track the last segment seen
+current_segment = None
 group_index = defaultdict(int)
 
 # Process the data
 for segment, field in data:
-    key = f"{segment}_{group_index[segment]}"
-    result[key].append(field)
-    # Increment the group index when a new segment appears
-    if len(result[key]) > 1:
+    if segment != current_segment:  # Start a new group if the segment changes
+        current_segment = segment
         group_index[segment] += 1
+    key = f"{segment}_{group_index[segment] - 1}"
+    result[key].append(field)
 
-# Convert defaultdict to a standard dictionary for the final output
+# Convert to a regular dictionary
 final_result = dict(result)
 print(final_result)
