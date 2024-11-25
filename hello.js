@@ -1,29 +1,29 @@
-from collections import defaultdict
+import xlsxwriter
 
-# Input data
+# Create a new Excel file and add a worksheet
+workbook = xlsxwriter.Workbook('dummy_data.xlsx')
+worksheet = workbook.add_worksheet('Sheet1')
+
+# Define some dummy data
+headers = ['ID', 'Name', 'Age', 'Country']
 data = [
-    (1, "abc"),
-    (2, "abd"),
-    (1, "xyz"),
-    (1, "dfg"),
-    (2, "cfd"),
+    [1, 'Alice', 30, 'USA'],
+    [2, 'Bob', 25, 'Canada'],
+    [3, 'Charlie', 35, 'UK'],
+    [4, 'Diana', 28, 'Australia'],
+    [5, 'Eve', 22, 'Germany']
 ]
 
-# Dictionary to store the result
-result = defaultdict(list)
+# Write the headers
+for col, header in enumerate(headers):
+    worksheet.write(0, col, header)
 
-# Track the last segment seen
-current_segment = None
-group_index = defaultdict(int)
+# Write the data
+for row, record in enumerate(data, start=1):
+    for col, value in enumerate(record):
+        worksheet.write(row, col, value)
 
-# Process the data
-for segment, field in data:
-    if segment != current_segment:  # Start a new group if the segment changes
-        current_segment = segment
-        group_index[segment] += 1
-    key = f"{segment}_{group_index[segment] - 1}"
-    result[key].append(field)
+# Close the workbook
+workbook.close()
 
-# Convert to a regular dictionary
-final_result = dict(result)
-print(final_result)
+print("Excel file 'dummy_data.xlsx' created successfully.")
