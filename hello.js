@@ -1,52 +1,36 @@
-import io
-import xlsxwriter
 from google.cloud import storage
+import json
 
-def create_excel_file_in_memory():
-    """Create an Excel file in memory and return it as a BytesIO object."""
-    output = io.BytesIO()  # In-memory bytes buffer
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet('Sheet1')
+# GCS bucket and file names
+bucket_name = "your-bucket-name"
+source_file = "source.json"  # The first JSON file with multiple keys
+target_file = "target.json"  # The second JSON file to be updated
 
-    # Define some dummy data
-    headers = ['ID', 'Name', 'Age', 'Country']
-    data = [
-        [1, 'Alice', 30, 'USA'],
-        [2, 'Bob', 25, 'Canada'],
-        [3, 'Charlie', 35, 'UK'],
-        [4, 'Diana', 28, 'Australia'],
-        [5, 'Eve', 22, 'Germany']
-    ]
+# Initialize GCS client
+client = storage.Client()
 
-    # Write the headers
-    for col, header in enumerate(headers):
-        worksheet.write(0, col, header)
+# Function to read a JSON file from GCS
+def read_json_from_gcs(bucket_name, file_name):
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
+    content = blob.download_as_text()
+    return json.loads(content)
 
-    # Write the data
-    for row, record in enumerate(data, start=1):
-        for col, value in enumerate(record):
-            worksheet.write(row, col, value)
+# Function to write a JSON file to GCS
+def write_json_to_gcs(bucket_name, file_name, data):
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
+    blob.upload_from_string(json.dumps(data, indent=4), content_type="application/json")
 
-    workbook.close()
-    output.seek(0)  # Reset buffer pointer to the beginning
-    return output
+# Read source and target JSONs from GCS
+source_data = read_json_from_gcs(bucket_name, source_file)
+target_data = read_json_from_gcs(bucket_name, target_file)
 
-def upload_to_gcs(bucket_name, destination_blob_name, data_buffer):
-    """Upload a BytesIO buffer directly to GCS."""
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(destination_blob_name)
+# Add all keys from source.json to the "01" element of target.json
+if "01" in target_data:
+    target_data["01"].update(source_data)  # Add/merge all key-value pairs from source.json
 
-    blob.upload_from_file(data_buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    print(f"File uploaded to 'gs://{bucket_name}/{destination_blob_name}'.")
+# Write the updated JSON back to GCS
+write_json_to_gcs(bucket_name, target_file, target_data)
 
-if __name__ == "__main__":
-    # GCS configuration
-    bucket_name = "<YOUR_BUCKET_NAME>"  # Replace with your GCS bucket name
-    destination_blob_name = "<YOUR_FILE_PATH>/dummy_data.xlsx"  # Replace with your desired file path in the bucket
-
-    # Create the Excel file in memory
-    excel_buffer = create_excel_file_in_memory()
-
-    # Upload the Excel file directly to GCS
-    upload_to_gcs(bucket_name, destination_blob_name, excel_buffer)
+print("Target JSON updated with all keys from source JSON.")
