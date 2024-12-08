@@ -1,48 +1,116 @@
+import pytest
+from unittest.mock import MagicMock, patch
 from google.cloud import storage
+from google.cloud.exceptions import PreconditionFailed
 import json
-from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from your_module import update_tracking_file, try_upload
 
-def update_tracking_file(bucket_name, tracking_file, uploaded_file):
-    """Check and update the tracking file in GCS with atomic operations."""
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(tracking_file)
+@pytest.fixture
+def mock_storage_client():
+    """Mock the GCS Client."""
+    with patch("your_module.storage.Client") as mock_client:
+        yield mock_client
 
-    # Read the existing tracking file and its metadata
-    if blob.exists():
-        tracking_data = json.loads(blob.download_as_string())
-        generation = blob.generation  # Get the current generation/version
-    else:
-        tracking_data = {"job_id": tracking_file.split("/")[-1], "file1": None, "file2": None, "status": "waiting"}
-        generation = None
+def test_update_tracking_file_new_file(mock_storage_client):
+    """Test creating a new tracking file."""
+    # Setup mock GCS behavior
+    mock_blob = MagicMock()
+    mock_bucket = MagicMock()
+    mock_storage_client().bucket.return_value = mock_bucket
+    mock_bucket.blob.return_value = mock_blob
+    mock_blob.exists.return_value = False  # Simulate no existing file
 
-    # Update the tracking file with the uploaded file
-    if not tracking_data["file1"]:
-        tracking_data["file1"] = uploaded_file
-    elif not tracking_data["file2"]:
-        tracking_data["file2"] = uploaded_file
+    bucket_name = "test-bucket"
+    tracking_file = "tracking/job-123.json"
+    uploaded_file = "gs://test-bucket/path/to/file1"
 
-    # Update the status to 'ready' if both files are now present
-    if tracking_data["file1"] and tracking_data["file2"]:
-        tracking_data["status"] = "ready"
+    # Call the function
+    result = update_tracking_file(bucket_name, tracking_file, uploaded_file)
 
-    # Write back the updated tracking file to GCS
-    if generation:
-        # Attempt the upload with retries
-        try_upload(blob, tracking_data, generation)
-    else:
-        blob.upload_from_string(json.dumps(tracking_data))
+    # Verify the file was created with expected content
+    expected_content = {
+        "job_id": "job-123",
+        "file1": "gs://test-bucket/path/to/file1",
+        "file2": None,
+        "status": "waiting",
+    }
+    mock_blob.upload_from_string.assert_called_once_with(json.dumps(expected_content))
+    assert result == expected_content
 
-    return tracking_data
+def test_update_tracking_file_existing_file(mock_storage_client):
+    """Test updating an existing tracking file."""
+    # Setup mock GCS behavior
+    mock_blob = MagicMock()
+    mock_bucket = MagicMock()
+    mock_storage_client().bucket.return_value = mock_bucket
+    mock_bucket.blob.return_value = mock_blob
+    mock_blob.exists.return_value = True  # Simulate file exists
 
-@retry(
-    wait=wait_exponential(multiplier=1, min=2, max=10),  # Exponential backoff
-    stop=stop_after_attempt(5),  # Stop after 5 attempts
-    retry=retry_if_exception_type(storage.exceptions.PreconditionFailed)  # Retry on specific exception
-)
-def try_upload(blob, tracking_data, generation):
-    """Attempt to upload the tracking data to GCS with generation match."""
-    blob.upload_from_string(
+    # Simulate existing tracking file content
+    existing_content = {
+        "job_id": "job-123",
+        "file1": "gs://test-bucket/path/to/file1",
+        "file2": None,
+        "status": "waiting",
+    }
+    mock_blob.download_as_string.return_value = json.dumps(existing_content)
+
+    bucket_name = "test-bucket"
+    tracking_file = "tracking/job-123.json"
+    uploaded_file = "gs://test-bucket/path/to/file2"
+
+    # Call the function
+    result = update_tracking_file(bucket_name, tracking_file, uploaded_file)
+
+    # Verify the file was updated with expected content
+    expected_content = {
+        "job_id": "job-123",
+        "file1": "gs://test-bucket/path/to/file1",
+        "file2": "gs://test-bucket/path/to/file2",
+        "status": "ready",
+    }
+    mock_blob.upload_from_string.assert_called_once_with(json.dumps(expected_content))
+    assert result == expected_content
+
+def test_try_upload_with_precondition_failed():
+    """Test try_upload retry logic when PreconditionFailed occurs."""
+    # Setup mock blob
+    mock_blob = MagicMock()
+
+    # Simulate PreconditionFailed on first two attempts, then success
+    mock_blob.upload_from_string.side_effect = [
+        PreconditionFailed("Precondition failed"),
+        PreconditionFailed("Precondition failed"),
+        None,
+    ]
+
+    tracking_data = {"job_id": "job-123", "file1": "file1", "file2": "file2", "status": "ready"}
+    generation = 12345
+
+    # Call the retry logic
+    try_upload(mock_blob, tracking_data, generation)
+
+    # Verify upload was retried 3 times
+    assert mock_blob.upload_from_string.call_count == 3
+    mock_blob.upload_from_string.assert_called_with(
         json.dumps(tracking_data),
-        if_generation_match=generation
+        if_generation_match=generation,
     )
+
+def test_try_upload_exceeds_retries():
+    """Test try_upload fails after exceeding retries."""
+    # Setup mock blob
+    mock_blob = MagicMock()
+
+    # Simulate PreconditionFailed on all attempts
+    mock_blob.upload_from_string.side_effect = PreconditionFailed("Precondition failed")
+
+    tracking_data = {"job_id": "job-123", "file1": "file1", "file2": "file2", "status": "ready"}
+    generation = 12345
+
+    # Expect an exception after retries are exhausted
+    with pytest.raises(PreconditionFailed):
+        try_upload(mock_blob, tracking_data, generation)
+
+    # Verify the upload was retried 5 times
+    assert mock_blob.upload_from_string.call_count == 5
