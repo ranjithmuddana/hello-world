@@ -1,36 +1,48 @@
 from google.cloud import storage
 import json
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
-# GCS bucket and file names
-bucket_name = "your-bucket-name"
-source_file = "source.json"  # The first JSON file with multiple keys
-target_file = "target.json"  # The second JSON file to be updated
-
-# Initialize GCS client
-client = storage.Client()
-
-# Function to read a JSON file from GCS
-def read_json_from_gcs(bucket_name, file_name):
+def update_tracking_file(bucket_name, tracking_file, uploaded_file):
+    """Check and update the tracking file in GCS with atomic operations."""
+    client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
-    content = blob.download_as_text()
-    return json.loads(content)
+    blob = bucket.blob(tracking_file)
 
-# Function to write a JSON file to GCS
-def write_json_to_gcs(bucket_name, file_name, data):
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
-    blob.upload_from_string(json.dumps(data, indent=4), content_type="application/json")
+    # Read the existing tracking file and its metadata
+    if blob.exists():
+        tracking_data = json.loads(blob.download_as_string())
+        generation = blob.generation  # Get the current generation/version
+    else:
+        tracking_data = {"job_id": tracking_file.split("/")[-1], "file1": None, "file2": None, "status": "waiting"}
+        generation = None
 
-# Read source and target JSONs from GCS
-source_data = read_json_from_gcs(bucket_name, source_file)
-target_data = read_json_from_gcs(bucket_name, target_file)
+    # Update the tracking file with the uploaded file
+    if not tracking_data["file1"]:
+        tracking_data["file1"] = uploaded_file
+    elif not tracking_data["file2"]:
+        tracking_data["file2"] = uploaded_file
 
-# Add all keys from source.json to the "01" element of target.json
-if "01" in target_data:
-    target_data["01"].update(source_data)  # Add/merge all key-value pairs from source.json
+    # Update the status to 'ready' if both files are now present
+    if tracking_data["file1"] and tracking_data["file2"]:
+        tracking_data["status"] = "ready"
 
-# Write the updated JSON back to GCS
-write_json_to_gcs(bucket_name, target_file, target_data)
+    # Write back the updated tracking file to GCS
+    if generation:
+        # Attempt the upload with retries
+        try_upload(blob, tracking_data, generation)
+    else:
+        blob.upload_from_string(json.dumps(tracking_data))
 
-print("Target JSON updated with all keys from source JSON.")
+    return tracking_data
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=2, max=10),  # Exponential backoff
+    stop=stop_after_attempt(5),  # Stop after 5 attempts
+    retry=retry_if_exception_type(storage.exceptions.PreconditionFailed)  # Retry on specific exception
+)
+def try_upload(blob, tracking_data, generation):
+    """Attempt to upload the tracking data to GCS with generation match."""
+    blob.upload_from_string(
+        json.dumps(tracking_data),
+        if_generation_match=generation
+    )
