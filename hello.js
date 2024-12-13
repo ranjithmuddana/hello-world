@@ -1,9 +1,3 @@
-# Custom serializer
-def custom_serializer(obj):
-    if isinstance(obj, pd.Series):
-        return obj.tolist()  # Or obj.to_dict(), depending on your needs
-    raise TypeError(f"Type {type(obj)} not serializable")
+Async (asynchronous) processing is a way to improve performance by allowing multiple tasks to happen simultaneously without waiting for each one to finish before starting the next.
 
-# Serialize with custom serializer
-json_output = json.dumps(data, default=custom_serializer)
-print(json_output)
+For example, if a system is handling customer requests or data updates, async ensures that no time is wasted waiting. Instead, tasks are queued and processed in parallel whenever resources are available. This keeps the system running efficiently, reduces delays, and helps handle a higher volume of work, ultimately improving responsiveness and user satisfaction.
