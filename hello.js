@@ -1,31 +1,26 @@
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
-import reactor.core.publisher.Mono;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 
-import java.time.Duration;
-import java.time.Instant;
+public class SequenceToCSV {
 
-public class WebClientLoggingFilter {
+    public static void main(String[] args) {
+        String fileName = "sequence.csv";
+        int start = 1;
+        int end = 100000;
 
-    private static final Logger logger = LoggerFactory.getLogger(WebClientLoggingFilter.class);
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+            writer.write("SequenceNumber"); // Header for the CSV file
+            writer.newLine();
 
-    public static ExchangeFilterFunction logRequestAndResponseTime() {
-        return (clientRequest, next) -> {
-            Instant start = Instant.now();
-            logger.info("Request: {} {}", clientRequest.method(), clientRequest.url());
+            for (int i = start; i <= end; i++) {
+                writer.write(String.valueOf(i));
+                writer.newLine();
+            }
 
-            return next.exchange(clientRequest)
-                .doOnNext(clientResponse -> {
-                    Instant end = Instant.now();
-                    Duration duration = Duration.between(start, end);
-                    logger.info("Response: {} {} took {}ms", 
-                                clientResponse.statusCode(),
-                                clientRequest.url(),
-                                duration.toMillis());
-                });
-        };
+            System.out.println("Sequence written to " + fileName + " successfully.");
+        } catch (IOException e) {
+            System.err.println("Error writing to file: " + e.getMessage());
+        }
     }
 }
