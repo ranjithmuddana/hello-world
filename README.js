@@ -1,29 +1,25 @@
 package com.example.demo;
 
-import com.example.demo.config.PubSubProperties;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
 import com.google.cloud.spring.pubsub.integration.AckMode;
 import com.google.cloud.spring.pubsub.integration.inbound.PubSubInboundChannelAdapter;
 import com.google.cloud.spring.pubsub.support.BasicAcknowledgeablePubsubMessage;
 import com.google.cloud.spring.pubsub.support.GcpPubSubHeaders;
 import lombok.extern.log4j.Log4j2;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.demo.config.PubSubProperties;
 import org.springframework.context.ApplicationContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.integration.annotation.ServiceActivator;
-import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.channel.PublishSubscribeChannel;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-
+import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
-
 @Log4j2
 @Configuration
 public class PubSubConfig {
-
-    @Autowired
-    private PubSubTemplate pubSubTemplate;
 
     @Autowired
     private PubSubProperties pubSubProperties;
@@ -31,32 +27,70 @@ public class PubSubConfig {
     @Autowired
     private ApplicationContext applicationContext;
 
-    @Bean
-    public List<PubSubInboundChannelAdapter> messageChannelAdapters() {
+
+    @Bean(name = "messageChannels")
+    public List<MessageChannel> messageChannels() {
+        List<MessageChannel> messageChannels = new ArrayList<>();
+        pubSubProperties.getSubscriptionNames().forEach(subscription -> {
+            // Create a new PublishSubscribeChannel for each subscription
+            PublishSubscribeChannel channel = new PublishSubscribeChannel();
+            String channelName = StringUtils.substringAfterLast(subscription, "/");
+            channel.setBeanName(channelName);
+            messageChannels.add(channel);
+        });
+        return messageChannels;
+    }
+
+    @Bean(name = "inboundChannelAdapters")
+    public List<PubSubInboundChannelAdapter> inboundChannelAdapters(PubSubTemplate pubSubTemplate) {
         List<PubSubInboundChannelAdapter> adapters = new ArrayList<>();
+        List<String> subscriptionNames = pubSubProperties.getSubscriptionNames();
+        for (int i = 0; i < subscriptionNames.size(); i++) {
+            String subscription = subscriptionNames.get(i);
+            MessageChannel messageChannel = messageChannels().get(i);  // Get the corresponding channel for this subscription
 
-        for (PubSubProperties.Subscription subscription : pubSubProperties.getSubscriptions()) {
-            DirectChannel inputChannel = new DirectChannel();
-            PubSubInboundChannelAdapter adapter =
-                new PubSubInboundChannelAdapter(pubSubTemplate, subscription.getName());
-            adapter.setOutputChannel(inputChannel);
+            log.info("Creating inbound adapter for subscription: {}", subscription);
+            // Create the inbound channel adapter for each subscription
+            PubSubInboundChannelAdapter adapter = new PubSubInboundChannelAdapter(pubSubTemplate, subscription);
+            adapter.setOutputChannel(messageChannel);
             adapter.setAckMode(AckMode.valueOf(pubSubProperties.getAckMode()));
-            adapter.setAutoStartup(true); // Enables pause/resume functionality
-
-            // Subscribe the specific handler for this subscription
-            inputChannel.subscribe(message -> {
-                byte[] payload = (byte[]) message.getPayload();
-                BasicAcknowledgeablePubsubMessage originalMessage =
-                    message.getHeaders().get(GcpPubSubHeaders.ORIGINAL_MESSAGE, BasicAcknowledgeablePubsubMessage.class);
-                
-                // Resolve and invoke the appropriate handler
-                invokeHandler(subscription.getHandler(), payload, originalMessage);
-            });
-
+            adapter.setPayloadType(byte[].class);
+            adapter.start();
             adapters.add(adapter);
         }
-
         return adapters;
+    }
+
+    @Bean
+    public List<MessageHandler> messageHandlers() {
+        List<MessageHandler> handlers = new ArrayList<>();
+        List<PubSubProperties.Subscription> subscriptions  = pubSubProperties.getSubscriptions();
+        for (int i = 0; i < subscriptions.size(); i++) {
+            PubSubProperties.Subscription subscription = subscriptions.get(i);
+            MessageChannel messageChannel = messageChannels().get(i);  // Get the corresponding channel for this subscription
+
+            // Add logging to ensure the handler is registered
+            log.info("Creating handler for subscription: {}", subscription.getName());
+
+            // Create the service activator for each subscription's channel
+            MessageHandler handler = message -> {
+                byte[] payload = (byte[]) message.getPayload();
+                BasicAcknowledgeablePubsubMessage originalMessage = message.getHeaders()
+                        .get(GcpPubSubHeaders.ORIGINAL_MESSAGE, BasicAcknowledgeablePubsubMessage.class);
+
+                // Resolve and invoke the appropriate handler
+                invokeHandler(subscription.getHandler(), payload, originalMessage);
+                
+                // Log the payload and acknowledge the message
+                log.info("Message arrived from subscription '{}' for handler '{}': Payload: {}", subscription.getName(), subscription.getHandler(), payload);
+                originalMessage.ack();
+            };
+
+            // Subscribe the handler to the corresponding message channel
+            ((PublishSubscribeChannel) messageChannel).subscribe(handler);
+            handlers.add(handler);
+        }
+        return handlers;
     }
 
     private void invokeHandler(String handlerBeanName, byte[] payload, BasicAcknowledgeablePubsubMessage message) {
@@ -67,39 +101,12 @@ public class PubSubConfig {
                 .invoke(handlerBean, payload, message);
         } catch (Exception e) {
             log.error("Failed to invoke handler '{}': {}", handlerBeanName, e.getMessage(), e);
-            // Optionally, you can negatively acknowledge or retry the message
+            // Optionally, you can negatively acknowledge 
         }
     }
 
-    @Bean
-    @ServiceActivator(inputChannel = "controlChannel")
-    public MessageHandler controlHandler() {
-        return message -> {
-            String command = new String((byte[]) message.getPayload()).toLowerCase();
-            log.info("Control command received: {}", command);
-            switch (command) {
-                case "pause":
-                    // Start of Selection
-                    applicationContext.getBeansOfType(PubSubInboundChannelAdapter.class)
-                        .values()
-                    applicationContext.getBeansOfType(PubSubInboundChannelAdapter.class)
-                        .values()
-                        .forEach(PubSubInboundChannelAdapter::stop);
-                    log.info("All PubSub adapters paused.");
-                    break;
-                case "resume":
-                    // Start of Selection
-                    applicationContext.getBeansOfType(PubSubInboundChannelAdapter.class)
-                        .values()
-                        .forEach(PubSubInboundChannelAdapter::start);
-                    log.info("All PubSub adapters resumed.");
-                    break;
-                default:
-                    log.warn("Unknown command: {}", command);
-            }
-        };
-    }
 }
+
 
 
 package com.example.demo.config;
@@ -109,9 +116,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Configuration
-@ConfigurationProperties(prefix = "pubsub")
+@ConfigurationProperties(prefix = "app.pubsub")
 @Data
 public class PubSubProperties {
     private List<Subscription> subscriptions;
@@ -123,7 +131,51 @@ public class PubSubProperties {
         private String topic;
         private String handler;
     }
+
+    public List<String> getSubscriptionNames() {
+        return subscriptions.stream()
+            .map(PubSubProperties.Subscription::getName)
+            .collect(Collectors.toList());
+    }
 } 
+
+
+    @Autowired
+    private List<PubSubInboundChannelAdapter> inboundChannelAdapters;
+
+    @PostMapping("/control-command")
+    public String controlCommand(@RequestParam String command) {
+        log.info("Control command received: {}", command);
+            switch (command) {
+                case "pause":
+                    inboundChannelAdapters
+                        .stream()
+                        .filter(adapter -> {
+                            log.info("Adapter is running: {}", adapter.getComponentName());
+                            return adapter.isRunning();
+                        })
+                        .forEach(PubSubInboundChannelAdapter::stop);
+                    log.info("All PubSub adapters paused.");
+                    break;
+                case "resume":
+                    inboundChannelAdapters
+                        .stream()
+                        .filter(adapter -> {
+                            log.info("Adapter is running: {}", adapter.getBeanName());
+                            return !adapter.isRunning();
+                        })
+                        .forEach(PubSubInboundChannelAdapter::start);
+                    log.info("All PubSub adapters resumed.");
+                    break;
+                default:
+                    command = "unknown";
+                    log.warn("Unknown command: {}", command);
+            }
+        return "Executed pubsub control command: " + command;
+    }
+
+
+
 
 package com.example.demo.service;
 
@@ -143,6 +195,8 @@ public class SubscriptionHandler1 {
     }
 } 
 
+
+
 package com.example.demo.service;
 
 import com.google.cloud.spring.pubsub.support.BasicAcknowledgeablePubsubMessage;
@@ -161,12 +215,37 @@ public class SubscriptionHandler2 {
     }
 } 
 
-pubsub:
-  ackMode: MANUAL
-  subscriptions:
-    - name: testSubscription1
-      topic: testTopic1
-      handler: subscriptionHandler1
-    - name: testSubscription2
-      topic: testTopic2
-      handler: subscriptionHandler2 
+
+package com.example.demo.service;
+
+import com.google.cloud.spring.pubsub.support.BasicAcknowledgeablePubsubMessage;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.stereotype.Service;
+
+@Log4j2
+@Service("subscriptionHandler3")
+public class SubscriptionHandler {
+
+    public void handleMessage(byte[] payload, BasicAcknowledgeablePubsubMessage message) {
+        String msg = new String(payload);
+        log.info("Handler3 processing message: " + msg);
+        // Implement your processing logic here
+        message.ack();
+    }
+} 
+
+
+
+app:
+  pubsub:
+    ackMode: MANUAL
+    subscriptions:
+      - name: projects/test-1234/subscriptions/sub-1
+        handler: subscriptionHandler1
+      - name: projects/test-1234/subscriptions/sub-2
+        handler: subscriptionHandler2
+      - name: projects/test-1234/subscriptions/sub-3
+        handler: subscriptionHandler3
+      - name: projects/test-1234/subscriptions/sub-4
+        handler: subscriptionHandler4
+        
