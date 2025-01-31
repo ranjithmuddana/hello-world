@@ -1,19 +1,19 @@
-graph TD
-    A[App 1] -->|Persist file cache| B[GCS Bucket]
-    A -->|Send Pub/Sub Message| C[Pub/Sub Topic]
-    C -->|Notify| D[App 2]
-    D -->|Check Memory Cache| E{Memory Cache}
-    E -- Hit --> F[Return Data]
-    E -- Miss --> G[Fetch from GCS]
-    G -->|Load into Memory Cache| E
-    G --> F[Return Data]
-    B -->|Retention Policy: 30 Days| X[Auto Delete Old Files]
-    
-    %% Styling for better visualization
-    classDef app fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef storage fill:#9ff,stroke:#333,stroke-width:2px;
-    classDef pubsub fill:#ff9,stroke:#333,stroke-width:2px;
-    
-    class A,D app;
-    class B storage;
-    class C pubsub;
+sequenceDiagram
+    participant A as App 1
+    participant B as GCS Bucket
+    participant C as Pub/Sub Topic
+    participant D as App 2
+    participant E as Memory Cache
+
+    A->>B: Persist File Cache
+    A->>C: Send Pub/Sub Message (Synchronous)
+    C->>D: Notify App 2
+    D->>E: Check Memory Cache
+    E-->>D: Cache Hit (Return Data)
+    E--X D: Cache Miss
+    D->>B: Fetch from GCS
+    B-->>D: Return Data
+    D->>E: Load Data into Memory Cache
+    D-->>Caller: Return Data
+
+    note over B: 30-Day Retention Policy
