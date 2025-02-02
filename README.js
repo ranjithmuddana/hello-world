@@ -1,19 +1,54 @@
-sequenceDiagram
-    participant A as App 1
-    participant B as GCS Bucket
-    participant C as Pub/Sub Topic
-    participant D as App 2
-    participant E as Memory Cache
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import java.util.*;
+import java.util.stream.Collectors;
 
-    A->>B: Persist File Cache
-    A->>C: Send Pub/Sub Message (Synchronous)
-    C->>D: Notify App 2
-    D->>E: Check Memory Cache
-    E-->>D: Cache Hit (Return Data)
-    E--X D: Cache Miss
-    D->>B: Fetch from GCS
-    B-->>D: Return Data
-    D->>E: Load Data into Memory Cache
-    D-->>Caller: Return Data
+public class JsonBenchmark {
+    private final JdbcTemplate jdbcTemplate;
 
-    note over B: 30-Day Retention Policy
+    public JsonBenchmark(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public void runBenchmark() throws Exception {
+        long fetchStart = System.currentTimeMillis();
+        
+        // Step 1: Fetch raw data (Simple query)
+        List<Map<String, Object>> dataList = jdbcTemplate.queryForList("SELECT * FROM my_table ORDER BY item_type");
+        
+        long fetchEnd = System.currentTimeMillis();
+        
+        long processStart = System.currentTimeMillis();
+        
+        // Step 2: Group Data
+        Map<String, List<Map<String, Object>>> groupedData = dataList.stream()
+            .collect(Collectors.groupingBy(row -> (String) row.get("item_type")));
+
+        Map<String, Object> jsonResult = new HashMap<>();
+        
+        for (Map.Entry<String, List<Map<String, Object>>> entry : groupedData.entrySet()) {
+            String type = entry.getKey();
+            List<Map<String, Object>> items = entry.getValue();
+
+            if ("typeA".equals(type)) {
+                Map<String, Object> level2 = new HashMap<>();
+                level2.put("category", items.get(0).get("category")); // Assuming same category for typeA
+                level2.put("items", items);
+
+                jsonResult.put(type, Map.of("level1", Map.of("level2", level2)));
+            } else {
+                jsonResult.put(type, items);
+            }
+        }
+
+        // Step 3: Convert to JSON
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonString = mapper.writeValueAsString(jsonResult);
+        
+        long processEnd = System.currentTimeMillis();
+
+        System.out.println("Raw Fetch Time: " + (fetchEnd - fetchStart) + " ms");
+        System.out.println("JSON Processing Time: " + (processEnd - processStart) + " ms");
+        System.out.println("Total Java Execution Time: " + (processEnd - fetchStart) + " ms");
+    }
+}
