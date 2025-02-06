@@ -1,13 +1,1 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    user: root  # Run as root to match ownership
-    container_name: spring_boot_app
-    volumes:
-      - /usr/share/maven:/usr/share/maven
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
-      SPRING_PROFILES_ACTIVE: dev
-    network_mode: "host"
+keytool -list -keystore keystore.jks -storepass <your-keystore-password> | grep -q '<your-alias>' && keytool -delete -alias <your-alias> -keystore keystore.jks -storepass <your-keystore-password> && echo "Alias '<your-alias>' deleted." || echo "Alias '<your-alias>' does not exist. No action taken."
