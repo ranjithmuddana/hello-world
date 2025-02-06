@@ -1,54 +1,27 @@
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.jdbc.core.JdbcTemplate;
-import java.util.*;
-import java.util.stream.Collectors;
+# Start from a minimal base image
+FROM ubuntu:22.04
 
-public class JsonBenchmark {
-    private final JdbcTemplate jdbcTemplate;
+# Set environment variables
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="$JAVA_HOME/bin:$PATH"
 
-    public JsonBenchmark(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+# Mount the local Java installation
+VOLUME ["/usr/lib/jvm/java-17-openjdk-amd64"]
 
-    public void runBenchmark() throws Exception {
-        long fetchStart = System.currentTimeMillis();
-        
-        // Step 1: Fetch raw data (Simple query)
-        List<Map<String, Object>> dataList = jdbcTemplate.queryForList("SELECT * FROM my_table ORDER BY item_type");
-        
-        long fetchEnd = System.currentTimeMillis();
-        
-        long processStart = System.currentTimeMillis();
-        
-        // Step 2: Group Data
-        Map<String, List<Map<String, Object>>> groupedData = dataList.stream()
-            .collect(Collectors.groupingBy(row -> (String) row.get("item_type")));
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
+    maven \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-        Map<String, Object> jsonResult = new HashMap<>();
-        
-        for (Map.Entry<String, List<Map<String, Object>>> entry : groupedData.entrySet()) {
-            String type = entry.getKey();
-            List<Map<String, Object>> items = entry.getValue();
+# Set working directory inside the container
+WORKDIR /app
 
-            if ("typeA".equals(type)) {
-                Map<String, Object> level2 = new HashMap<>();
-                level2.put("category", items.get(0).get("category")); // Assuming same category for typeA
-                level2.put("items", items);
+# Copy the application source code
+COPY . .
 
-                jsonResult.put(type, Map.of("level1", Map.of("level2", level2)));
-            } else {
-                jsonResult.put(type, items);
-            }
-        }
+# Build the Spring Boot application
+RUN mvn clean package -DskipTests
 
-        // Step 3: Convert to JSON
-        ObjectMapper mapper = new ObjectMapper();
-        String jsonString = mapper.writeValueAsString(jsonResult);
-        
-        long processEnd = System.currentTimeMillis();
-
-        System.out.println("Raw Fetch Time: " + (fetchEnd - fetchStart) + " ms");
-        System.out.println("JSON Processing Time: " + (processEnd - processStart) + " ms");
-        System.out.println("Total Java Execution Time: " + (processEnd - fetchStart) + " ms");
-    }
-}
+# Run the application (for JAR-based Spring Boot apps)
+CMD ["java", "-jar", "target/myapp.jar"]
