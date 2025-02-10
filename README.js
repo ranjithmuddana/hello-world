@@ -1,1 +1,1 @@
-keytool -list -keystore keystore.jks -storepass <your-keystore-password> | grep -q '<your-alias>' && keytool -delete -alias <your-alias> -keystore keystore.jks -storepass <your-keystore-password> && echo "Alias '<your-alias>' deleted." || echo "Alias '<your-alias>' does not exist. No action taken."
+bq ls --jobs --all --format=json | jq '.[] | select(.id | contains("<PARTIAL_JOB_ID>") and .user_email == "<USER_EMAIL>" and .parentJobId == null)'
