@@ -1,1 +1,1 @@
-bq ls --jobs --all --format=json | jq '.[] | select(.id | contains("<PARTIAL_JOB_ID>") and .user_email == "<USER_EMAIL>" and .parentJobId == null)'
+bq ls --jobs --all --format=json | jq -r '.[] | select(.id | contains("<PARTIAL_JOB_ID>") and .user_email == "<USER_EMAIL>" and .parentJobId == null) | "\(.id) | \(.configuration.query.query // "N/A") | \(.status.state)"'
