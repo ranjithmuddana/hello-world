@@ -1,58 +1,43 @@
-import com.google.cloud.spring.pubsub.core.publisher.PubSubPublisherTemplate;
-import com.google.cloud.spring.pubsub.integration.outbound.PubSubMessageHandler;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.support.GenericMessage;
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.util.concurrent.CompletableFuture;
+# List of module pom paths
+pom_paths = [
+    "module1/pom.xml",
+    "module2/pom.xml",
+    "module3/pom.xml",
+]
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+# Create a basic structure for the merged pom
+merged_root = ET.Element("project", xmlns="http://maven.apache.org/POM/4.0.0")
+ET.SubElement(merged_root, "modelVersion").text = "4.0.0"
+ET.SubElement(merged_root, "groupId").text = "com.example"
+ET.SubElement(merged_root, "artifactId").text = "merged-project"
+ET.SubElement(merged_root, "version").text = "1.0.0"
+ET.SubElement(merged_root, "packaging").text = "pom"
+dependencies = ET.SubElement(merged_root, "dependencies")
 
-class PubSubMessageHandlerTest {
+# Helper to avoid duplicate dependencies
+seen_dependencies = set()
 
-    private static final String TOPIC_NAME = "test-topic";
-    
-    private PubSubPublisherTemplate mockPublisherTemplate;
-    private ByteArrayOutputStream errContent;
-    private PrintStream originalErr;
+def get_dependency_key(dep_elem):
+    gid = dep_elem.findtext("{http://maven.apache.org/POM/4.0.0}groupId")
+    aid = dep_elem.findtext("{http://maven.apache.org/POM/4.0.0}artifactId")
+    return f"{gid}:{aid}"
 
-    @BeforeEach
-    void setUp() {
-        // Mock PubSubPublisherTemplate
-        mockPublisherTemplate = Mockito.mock(PubSubPublisherTemplate.class);
+# Extract dependencies from each module pom
+for path in pom_paths:
+    tree = ET.parse(path)
+    root = tree.getroot()
+    deps = root.find("{http://maven.apache.org/POM/4.0.0}dependencies")
+    if deps is not None:
+        for dep in deps.findall("{http://maven.apache.org/POM/4.0.0}dependency"):
+            key = get_dependency_key(dep)
+            if key not in seen_dependencies:
+                seen_dependencies.add(key)
+                dependencies.append(dep)
 
-        // Capture System.err output for assertions
-        errContent = new ByteArrayOutputStream();
-        originalErr = System.err;
-        System.setErr(new PrintStream(errContent));
-    }
-
-    @Test
-    void testFailureCallbackTriggered() {
-        // Mock failure scenario: return a failed CompletableFuture
-        when(mockPublisherTemplate.publish(any(), any(), any()))
-                .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Simulated publish failure")));
-
-        // Create the handler
-        MessageHandler handler = new PubSubMessageHandler(mockPublisherTemplate, TOPIC_NAME);
-        ((PubSubMessageHandler) handler).setFailureCallback((cause, message) -> 
-            System.err.println("Failed to publish message: " + cause.getMessage()));
-
-        // Send a test message
-        Message<String> message = new GenericMessage<>("Test message");
-        handler.handleMessage(message);
-
-        // Verify System.err output
-        assertTrue(errContent.toString().contains("Failed to publish message: Simulated publish failure"));
-        
-        // Restore original System.err
-        System.setErr(originalErr);
-    }
-}
+# Write merged POM
+tree = ET.ElementTree(merged_root)
+tree.write("merged-pom.xml", encoding="utf-8", xml_declaration=True)
+print("Merged POM written to merged-pom.xml")
