@@ -12,11 +12,11 @@ flowchart TD
         B1 --> B2[Launch Job via JobLauncher]
 
         subgraph Step 1 [Read + Process + Write]
-            B2 --> C1[Read rows from<br/>Source DB (PostgreSQL)]
+            B2 --> C1[Read rows from<br/>Source DB PostgreSQL]
             C1 --> C2[For each row:<br/>build JSON request]
-            C2 --> C3[Call External API 1 & 2<br/>using WebClient (parallel)]
+            C2 --> C3[Call External API 1 & 2<br/>using WebClient parallel]
             C3 --> C4[Combine responses into object]
-            C4 --> C5[Write combined result<br/>to Target DB (MySQL)]
+            C4 --> C5[Write combined result<br/>to Target DB MySQL]
         end
     end
 
