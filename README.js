@@ -1,43 +1,29 @@
-import xml.etree.ElementTree as ET
-from pathlib import Path
+```mermaid
 
-# List of module pom paths
-pom_paths = [
-    "module1/pom.xml",
-    "module2/pom.xml",
-    "module3/pom.xml",
-]
+flowchart TD
+    subgraph Scheduler [Internal Spring Scheduler]
+        A1[Every 5 minutes<br/>@Scheduled method runs] --> A2{ExecutorService<br/>has thread available?}
+        A2 -- Yes --> A3[Submit job to thread pool]
+        A2 -- No --> A4[Skip run, log "job still running"]
+    end
 
-# Create a basic structure for the merged pom
-merged_root = ET.Element("project", xmlns="http://maven.apache.org/POM/4.0.0")
-ET.SubElement(merged_root, "modelVersion").text = "4.0.0"
-ET.SubElement(merged_root, "groupId").text = "com.example"
-ET.SubElement(merged_root, "artifactId").text = "merged-project"
-ET.SubElement(merged_root, "version").text = "1.0.0"
-ET.SubElement(merged_root, "packaging").text = "pom"
-dependencies = ET.SubElement(merged_root, "dependencies")
+    subgraph BatchJob [Spring Batch Job Execution]
+        A3 --> B1[Create JobParameters with timestamp]
+        B1 --> B2[Launch Job via JobLauncher]
 
-# Helper to avoid duplicate dependencies
-seen_dependencies = set()
+        subgraph Step 1 [Read + Process + Write]
+            B2 --> C1[Read rows from<br/>Source DB (PostgreSQL)]
+            C1 --> C2[For each row:<br/>build JSON request]
+            C2 --> C3[Call External API 1 & 2<br/>using WebClient (parallel)]
+            C3 --> C4[Combine responses into object]
+            C4 --> C5[Write combined result<br/>to Target DB (MySQL)]
+        end
+    end
 
-def get_dependency_key(dep_elem):
-    gid = dep_elem.findtext("{http://maven.apache.org/POM/4.0.0}groupId")
-    aid = dep_elem.findtext("{http://maven.apache.org/POM/4.0.0}artifactId")
-    return f"{gid}:{aid}"
-
-# Extract dependencies from each module pom
-for path in pom_paths:
-    tree = ET.parse(path)
-    root = tree.getroot()
-    deps = root.find("{http://maven.apache.org/POM/4.0.0}dependencies")
-    if deps is not None:
-        for dep in deps.findall("{http://maven.apache.org/POM/4.0.0}dependency"):
-            key = get_dependency_key(dep)
-            if key not in seen_dependencies:
-                seen_dependencies.add(key)
-                dependencies.append(dep)
-
-# Write merged POM
-tree = ET.ElementTree(merged_root)
-tree.write("merged-pom.xml", encoding="utf-8", xml_declaration=True)
-print("Merged POM written to merged-pom.xml")
+    subgraph ExternalSystems [External APIs & Databases]
+        C3 --> D1[(API 1)]
+        C3 --> D2[(API 2)]
+        C1 --> E1[(PostgreSQL - input_table)]
+        C5 --> E2[(MySQL - output_table)]
+    end
+```
