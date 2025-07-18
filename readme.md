@@ -4,7 +4,7 @@ flowchart TD
     subgraph Scheduler [Internal Spring Scheduler]
         A1[Every 5 minutes<br/>@Scheduled method runs] --> A2{ExecutorService<br/>has thread available?}
         A2 -- Yes --> A3[Submit job to thread pool]
-        A2 -- No --> A4[Skip run, log "job still running"]
+        A2 -- No --> A4[Skip run, log job still running]
     end
 
     subgraph BatchJob [Spring Batch Job Execution]
@@ -21,8 +21,8 @@ flowchart TD
     end
 
     subgraph ExternalSystems [External APIs & Databases]
-        C3 --> D1[(API 1)]
-        C3 --> D2[(API 2)]
+        C3 --> D1[API 1]
+        C3 --> D2[API 2]
         C1 --> E1[(PostgreSQL - input_table)]
         C5 --> E2[(MySQL - output_table)]
     end
