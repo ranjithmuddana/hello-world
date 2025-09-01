@@ -1,32 +1,35 @@
-Opal‑like Workflow Tool — Architecture & Sequence Blueprint
+# Opal‑like Workflow Tool — Architecture & Sequence Blueprint
 
-Internal workflow automation platform for DEV, QA, and PO teams integrating GitHub, Jira, SonarQube, Fortify, and Google Vertex AI.
+> Internal workflow automation platform for DEV, QA, and PO teams integrating GitHub, Jira, SonarQube, Fortify, and Google Vertex AI.
 
-⸻
+---
 
-1) High‑Level Objectives
-	•	Enforce standardized, auditable SDLC workflows across teams
-	•	Orchestrate Jira‑driven development with GitHub, CI, quality gates (Sonar/Fortify), and testing (JUnit/Playwright)
-	•	Provide PO/QA friendly UI and summaries
-	•	Embed AI assistance via Vertex AI for code/test suggestions and PR/Jira summaries
+## 1) High‑Level Objectives
 
-⸻
+- Enforce standardized, auditable SDLC workflows across teams
+- Orchestrate Jira‑driven development with GitHub, CI, quality gates (Sonar/Fortify), and testing (JUnit/Playwright)
+- Provide PO/QA friendly UI and summaries
+- Embed AI assistance via Vertex AI for code/test suggestions and PR/Jira summaries
 
-2) Reference Tech Stack
-	•	Frontend: React + Tailwind + shadcn/ui; Playwright for UI tests
-	•	Backend: Spring Boot (Java/Kotlin)
-	•	Workflow Orchestration: Temporal or Camunda/Zeebe (choose one)
-	•	CI: GitHub Actions (or Jenkins/GitLab CI); ArgoCD for K8s deploy
-	•	Quality/Sec: SonarQube, Fortify SCA/SAST
-	•	AI: Google Vertex AI (Text, Code, and Summarization models)
-	•	Data: PostgreSQL (state/audit), Redis (cache/rate‑limit), MinIO/GCS (artifacts)
-	•	Auth: Enterprise SSO (OIDC/SAML), RBAC/ABAC
-	•	Runtime: Kubernetes + Istio/Linkerd (optional), OpenTelemetry for tracing
+---
 
-⸻
+## 2) Reference Tech Stack
 
-3) System Architecture (Component Diagram)
+- **Frontend**: React + Tailwind + shadcn/ui; Playwright for UI tests
+- **Backend**: Spring Boot (Java/Kotlin)
+- **Workflow Orchestration**: Temporal **or** Camunda/Zeebe (choose one)
+- **CI**: GitHub Actions (or Jenkins/GitLab CI); ArgoCD for K8s deploy
+- **Quality/Sec**: SonarQube, Fortify SCA/SAST
+- **AI**: Google Vertex AI (Text, Code, and Summarization models)
+- **Data**: PostgreSQL (state/audit), Redis (cache/rate‑limit), MinIO/GCS (artifacts)
+- **Auth**: Enterprise SSO (OIDC/SAML), RBAC/ABAC
+- **Runtime**: Kubernetes + Istio/Linkerd (optional), OpenTelemetry for tracing
 
+---
+
+## 3) System Architecture (Component Diagram)
+
+```mermaid
 flowchart TB
   subgraph Clients
     PO[Product Owner]
@@ -86,16 +89,19 @@ flowchart TB
   GHC <-->|Webhooks| API
   SONAR --> SNC
   FORT --> FRC
+```
 
-Notes
-	•	Prefer webhooks (GitHub) → API Gateway → enqueue jobs in ORCH
-	•	Connectors are stateless; all tokens/secrets managed via Vault/KMS
-	•	Sonar/Fortify results are polled or webhook‑driven into SVC, stored in PG, surfaced in UI
+**Notes**
 
-⸻
+- Prefer webhooks (GitHub) → API Gateway → enqueue jobs in ORCH
+- Connectors are stateless; all tokens/secrets managed via Vault/KMS
+- Sonar/Fortify results are polled or webhook‑driven into SVC, stored in PG, surfaced in UI
 
-4) End‑to‑End Workflow (Sequence Diagram)
+---
 
+## 4) End‑to‑End Workflow (Sequence Diagram)
+
+```mermaid
 sequenceDiagram
   autonumber
   participant PO as Product Owner
@@ -143,12 +149,13 @@ sequenceDiagram
     WF->>CI: Release pipeline → ARGO deploy
     WF->>JIRA: Auto close / release notes
   end
+```
 
+---
 
-⸻
+## 5) Data Model (ERD)
 
-5) Data Model (ERD)
-
+```mermaid
 erDiagram
   USER ||--o{ MEMBERSHIP : has
   TEAM ||--o{ MEMBERSHIP : has
@@ -173,38 +180,41 @@ erDiagram
   CI_JOB { uuid id PK, uuid run_id FK, string name, string status, text log_uri }
   QUALITY_GATE { uuid id PK, uuid run_id FK, string type // sonar/fortify, string status, jsonb summary }
   ISSUE_FINDING { uuid id PK, uuid gate_id FK, string severity, string rule, text file, int line, text message }
+```
 
+---
 
-⸻
+## 6) API Surface (Representative)
 
-6) API Surface (Representative)
+**Gateway/BFF (REST/GraphQL)**
 
-Gateway/BFF (REST/GraphQL)
-	•	POST /workflows/start → body: {jiraKey, repoId, templateId}
-	•	GET /workflows/{runId} → status, gates, links
-	•	POST /hooks/github → PR/commit webhooks
-	•	POST /hooks/sonar / POST /hooks/fortify
-	•	POST /ai/summarize (internal) → PR/Jira context
-	•	GET /reports/leadtime?team=...&from=...&to=...
+- `POST /workflows/start` → body: `{jiraKey, repoId, templateId}`
+- `GET /workflows/{runId}` → status, gates, links
+- `POST /hooks/github` → PR/commit webhooks
+- `POST /hooks/sonar` / `POST /hooks/fortify`
+- `POST /ai/summarize` (internal) → PR/Jira context
+- `GET /reports/leadtime?team=...&from=...&to=...`
 
-Security: OIDC auth; per‑team RBAC; signed webhook secrets; least‑priv PATs; Vault for creds
+**Security**: OIDC auth; per‑team RBAC; signed webhook secrets; least‑priv PATs; Vault for creds
 
-⸻
+---
 
-7) Quality Gates & Policies
-	•	Build & Unit Tests (JUnit): min coverage (e.g., 80%), no failing tests
-	•	UI Tests (Playwright): smoke suite must pass
-	•	SonarQube: no new critical/blocker issues; coverage on new code ≥ threshold; maintainability rating ≥ B
-	•	Fortify: no high/critical vulnerabilities; SCA policy compliant
-	•	PR Reviews: at least N reviewers; code owner paths enforced
-	•	Jira Sync: PR must reference Jira key; state transitions automated
+## 7) Quality Gates & Policies
 
-⸻
+- **Build & Unit Tests (JUnit)**: min coverage (e.g., 80%), no failing tests
+- **UI Tests (Playwright)**: smoke suite must pass
+- **SonarQube**: no new critical/blocker issues; coverage on new code ≥ threshold; maintainability rating ≥ B
+- **Fortify**: no high/critical vulnerabilities; SCA policy compliant
+- **PR Reviews**: at least N reviewers; code owner paths enforced
+- **Jira Sync**: PR must reference Jira key; state transitions automated
 
-8) CI/CD Blueprints (Sketched)
+---
 
-GitHub Actions
+## 8) CI/CD Blueprints (Sketched)
 
+**GitHub Actions**
+
+```yaml
 name: pr
 on:
   pull_request:
@@ -231,9 +241,11 @@ jobs:
           fortify-sast scan --build ./target --project $GITHUB_REPOSITORY --out results.fpr
       - name: Notify Workflow Svc
         run: curl -X POST "$WORKFLOW_SVC/hooks/ci" -H "Authorization: Bearer $TOKEN" -d @payload.json
+```
 
-Playwright Test (separate job or nightly)
+**Playwright Test (separate job or nightly)**
 
+```yaml
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -243,42 +255,48 @@ jobs:
         with: { node-version: '20' }
       - run: npm ci && npx playwright install --with-deps
       - run: npx playwright test --reporter=junit
+```
 
+---
 
-⸻
+## 9) AI Assistance (Vertex AI) — Use Cases
 
-9) AI Assistance (Vertex AI) — Use Cases
-	•	PR/Jira Summaries: condense change sets & link to acceptance criteria
-	•	Test Suggestions: propose JUnit/Playwright tests from diffs
-	•	Fix Hints: generate code snippets addressing Sonar/Fortify rules
-	•	Release Notes: compile from merged PRs and Jira labels
+- **PR/Jira Summaries**: condense change sets & link to acceptance criteria
+- **Test Suggestions**: propose JUnit/Playwright tests from diffs
+- **Fix Hints**: generate code snippets addressing Sonar/Fortify rules
+- **Release Notes**: compile from merged PRs and Jira labels
 
-Safety & Guardrails
-	•	Run AI suggestions in “proposal” mode; never auto‑commit without human approval
-	•	Log prompts/outputs; redact secrets; enable content filters
+**Safety & Guardrails**
 
-⸻
+- Run AI suggestions in "proposal" mode; never auto‑commit without human approval
+- Log prompts/outputs; redact secrets; enable content filters
 
-10) Governance, Audit, and Observability
-	•	Audit Log: all transitions (who, what, when) in PG (append‑only)
-	•	Dashboards: DORA metrics (lead time, MTTR, change failure rate), coverage, vuln trends
-	•	Tracing/Metrics: OpenTelemetry → Prometheus/Grafana
-	•	Backup/DR: PG PITR, artifact retention policies
+---
 
-⸻
+## 10) Governance, Audit, and Observability
 
-11) Rollout Plan
-	1.	Connectors: Jira + GitHub + basic PR webhooks
-	2.	Unit tests + Sonar gate; show in UI
-	3.	Add Fortify; wire Slack/Email notifications
-	4.	Add Playwright; then PO/QA approval screens
-	5.	Introduce AI summaries; later test/fix suggestions
-	6.	Scale to multi‑team with templates and RBAC
+- **Audit Log**: all transitions (who, what, when) in PG (append‑only)
+- **Dashboards**: DORA metrics (lead time, MTTR, change failure rate), coverage, vuln trends
+- **Tracing/Metrics**: OpenTelemetry → Prometheus/Grafana
+- **Backup/DR**: PG PITR, artifact retention policies
 
-⸻
+---
 
-12) Open Decisions
-	•	Temporal vs Camunda (ops & developer ergonomics)
-	•	Central Sonar/Fortify vs per‑team instances
-	•	Where to run Playwright (ephemeral env vs shared staging)
-	•	AI model mix (code vs text models) and prompt governance
+## 11) Rollout Plan
+
+1. Connectors: Jira + GitHub + basic PR webhooks
+2. Unit tests + Sonar gate; show in UI
+3. Add Fortify; wire Slack/Email notifications
+4. Add Playwright; then PO/QA approval screens
+5. Introduce AI summaries; later test/fix suggestions
+6. Scale to multi‑team with templates and RBAC
+
+---
+
+## 12) Open Decisions
+
+- Temporal vs Camunda (ops & developer ergonomics)
+- Central Sonar/Fortify vs per‑team instances
+- Where to run Playwright (ephemeral env vs shared staging)
+- AI model mix (code vs text models) and prompt governance
+
