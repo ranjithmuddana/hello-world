@@ -1,0 +1,5 @@
+curl --request POST \
+  --url http://localhost:8080/api/transform \
+  --header 'Content-Type: multipart/form-data' \
+  --form input_json=undefined \
+  --form transformer_spec=undefined

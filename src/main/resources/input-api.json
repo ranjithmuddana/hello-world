@@ -1,0 +1,16 @@
+{
+  "baseUrl": "http://localhost:8000",
+  "path": "/api/resource/{id}",
+  "queryParams": {
+    "param1": "value1",
+    "param2": "value2"
+  },
+  "uriVariables": {
+    "id": "123"
+  },
+  "httpMethod": "GET",
+  "requestBody": {
+    "key1": "value1",
+    "key2": "value2"
+  }
+}

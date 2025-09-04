@@ -1,0 +1,20 @@
+[
+  {
+    "operation": "modify-overwrite-beta",
+    "spec": {
+      "happy": "=toBoolean",
+      "meh": ["=toBoolean", false],
+
+      "answer": "=toString",
+
+      "statistics": {
+        "*": {
+          "min": ["=toInteger", 0],
+          "max": ["=toInteger", null],
+          "avg": ["=toDouble", null],
+          "_id": "UNKNOWN"
+        }
+      }
+    }
+  }
+]
