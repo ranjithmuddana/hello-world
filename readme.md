@@ -15,53 +15,78 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 1
 fi
 
-echo "🍏 Starting Mac storage migration to: $TARGET_DIR"
+echo "🍏 Starting Interactive Mac Storage Migration"
+echo "--------------------------------------------------"
+echo "Instructions: Type 'y' and Enter to run a command. Press Enter alone to skip it."
 echo "--------------------------------------------------"
 
-# Function to safely move and symlink a directory
+# Helper function to print a command, ask for confirmation, and run it
+confirm_and_run() {
+    local cmd="$1"
+    
+    # Print the command in yellow text for clear visibility
+    echo -e "\n👉 Ready to run: \033[33m$cmd\033[0m"
+    read -p "Execute this command? (y/N): " response
+    
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        # Run the command
+        eval "$cmd"
+        return $?
+    else
+        echo "⏭️  Skipped."
+        return 1
+    fi
+}
+
+# Core function to handle folder tracking
 migrate_folder() {
     local source_path="$1"
     local dest_path="$2"
     
     # Check if source exists and is not already a symlink
     if [ -d "$source_path" ] && [ ! -L "$source_path" ]; then
-        echo "📦 Migrating: $source_path"
+        echo -e "\n📦 --- Target found: $source_path ---"
         
-        # Create target directory on external drive
-        mkdir -p "$(dirname "$dest_path")"
+        # Step A: Create target directory
+        confirm_and_run "mkdir -p \"$(dirname "$dest_path")\""
         
-        # Sync the data safely (a = archive/permissions, v = verbose, P = progress)
-        sudo rsync -avP "$source_path/" "$dest_path/"
+        # Step B: Sync files safely using rsync
+        confirm_and_run "sudo rsync -avP \"$source_path/\" \"$dest_path/\""
         
-        # Verify sync was successful before deleting
+        # Only proceed to delete/link if the rsync prompt wasn't skipped
         if [ $? -eq 0 ]; then
-            echo "✅ Sync successful. Removing original internal files..."
-            sudo rm -rf "$source_path"
+            # Step C: Remove the original directory
+            confirm_and_run "sudo rm -rf \"$source_path\""
             
-            echo "🔗 Creating symlink..."
-            sudo ln -s "$dest_path" "$source_path"
-            echo "🎉 Successfully linked $source_path -> $dest_path"
+            # Step D: Create the symbolic link
+            confirm_and_run "sudo ln -s \"$dest_path\" \"$source_path\""
         else
-            echo "❌ Error syncing $source_path. Keeping original folder intact."
+            echo "ℹ️  Rsync step was skipped or failed. Skipping deletion and linking to keep data safe."
         fi
     elif [ -L "$source_path" ]; then
-        echo "⏭️  Skipping: $source_path is already a symbolic link."
+        echo "⏭️  Skipping target: '$source_path' is already a symbolic link."
     else
-        echo "ℹ️  Skipping: $source_path does not exist or isn't a directory."
+        echo "ℹ️  Skipping target: '$source_path' does not exist on your internal drive."
     fi
     echo "--------------------------------------------------"
 }
 
 # --- PROCESS TARGETS ---
 
-# Target 1: The heavy developer environment (Xcode, Simulators, DerivedData)
+# Target 1: The developer environment (Xcode, Simulators, DerivedData)
 migrate_folder "$HOME/Library/Developer" "$TARGET_DIR/Developer"
 
-# Target 2: Homebrew Cellar (Where CLI tools are installed)
+# Target 2: Homebrew Cellar (CLI Tools)
 migrate_folder "$BREW_BASE/Cellar" "$TARGET_DIR/Homebrew/Cellar"
 
-# Target 3: Homebrew Caskroom (Where GUI application binaries sit)
+# Target 3: Homebrew Caskroom (GUI Apps)
 migrate_folder "$BREW_BASE/Caskroom" "$TARGET_DIR/Homebrew/Caskroom"
 
-echo "🏁 Migration script finished!"
-echo "💡 Reminder: Keep '$EXTERNAL_NAME' plugged in when running terminal tools or compiling code."
+# Target 4: Specific heavy Application Support items
+migrate_folder "$HOME/Library/Application Support/Code" "$TARGET_DIR/AppSupport/Code"
+migrate_folder "$HOME/Library/Application Support/Google/Chrome" "$TARGET_DIR/AppSupport/Chrome"
+migrate_folder "$HOME/Library/Application Support/Spotify" "$TARGET_DIR/AppSupport/Spotify"
+migrate_folder "$HOME/Library/Application Support/discord" "$TARGET_DIR/AppSupport/discord"
+migrate_folder "$HOME/Library/Application Support/Steam" "$TARGET_DIR/AppSupport/Steam"
+
+echo -e "\n🏁 Interactive migration process finished!"
